@@ -1,0 +1,12 @@
+services:
+  home-dash:
+    image: python:3.13-slim
+    container_name: home-dash
+    network_mode: host
+    volumes:
+      - ./app.py:/app/app.py:ro
+      - ./static:/app/static:ro
+    working_dir: /app
+    command: sh -c "pip install flask --quiet --root-user-action=ignore && python app.py"
+    env_file: deploy.env
+    restart: unless-stopped

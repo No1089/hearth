@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Home</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<style>
+:root {
+  --bg: #f6f1e8; --panel: #fffdf8; --ink: #2a2622; --dim: #7a7166; --faint: #b9b0a3;
+  --line: #e7dfd2; --accent: #2f6f62; --accent-ink: #fff; --busy: #d93a2b;
+  --chip: #efe7da; --shadow: 0 1px 2px rgba(60,40,20,.08), 0 4px 14px rgba(60,40,20,.06);
+  --c1: #e4572e; --c2: #2f80a8; --c3: #8a5cc2; --c4: #3c9d5d; --c5: #d8a01e; --c6: #c2477f;
+}
+body.night {
+  --bg: #15130f; --panel: #1f1c17; --ink: #ece5d8; --dim: #9a9083; --faint: #5d564c;
+  --line: #2e2a23; --accent: #6fb7a5; --accent-ink: #10201c; --chip: #2a2620;
+  --shadow: 0 1px 2px rgba(0,0,0,.4);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--ink);
+  font-family: system-ui, Roboto, "Segoe UI", sans-serif; font-size: clamp(15px, 1.7vw, 22px);
+  -webkit-user-select: none; user-select: none; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+input { font: inherit; color: inherit; }
+svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.hidden { display: none !important; }
+
+/* ── busy banner (both modes) ─────────────────────────── */
+#busy { position: fixed; z-index: 50; left: 50%; top: 14px; transform: translate(-50%, -250%);
+  transition: transform .5s cubic-bezier(.2,.9,.3,1.2); background: var(--busy); color: #fff;
+  border-radius: 999px; padding: .55em 1.3em .55em 1em; display: flex; align-items: center; gap: .6em;
+  font-weight: 700; font-size: 1.25rem; box-shadow: 0 6px 24px rgba(217,58,43,.45); white-space: nowrap; }
+body.busy #busy { transform: translate(-50%, 0); }
+#busy .dot { width: .7em; height: .7em; border-radius: 50%; background: #fff; animation: pulse 1.6s infinite; }
+#busy small { font-weight: 500; opacity: .85; font-size: .75em; }
+@keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.75); } }
+
+/* ── screensaver ──────────────────────────────────────── */
+#saver { position: fixed; inset: 0; background: #000; color: #eee; z-index: 10; }
+#saver img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+  opacity: 0; transition: opacity 1.4s ease; }
+#saver img.cover { object-fit: cover; }
+#saver img.on { opacity: 1; }
+#saver .meta { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end;
+  justify-content: space-between; gap: 2em; padding: 3em 1.6em 1.2em;
+  background: linear-gradient(to top, rgba(0,0,0,.78), rgba(0,0,0,.35) 60%, transparent); }
+#caption { font-family: Georgia, "Times New Roman", serif; min-width: 0; transition: opacity .8s; }
+#caption .a { font-size: 1.1rem; }
+#caption .t { font-style: italic; color: #bbb; font-size: .9rem; margin-top: .15em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#saver .clock { text-align: right; flex: none; }
+#saver .clock .time { font-size: 3.4rem; font-weight: 300; line-height: 1; letter-spacing: -.02em; }
+#saver .clock .sub { color: #bbb; font-size: .95rem; margin-top: .3em; display: flex; gap: .5em;
+  justify-content: flex-end; align-items: center; }
+#saver .hint { position: absolute; top: 1.2em; right: 1.4em; font-size: .8rem; color: rgba(255,255,255,.35); }
+
+/* ── dashboard ────────────────────────────────────────── */
+#dash { position: fixed; inset: 0; display: grid; grid-template-columns: 6.4em 1fr; grid-template-rows: auto 1fr; }
+header { grid-column: 1 / 3; display: flex; align-items: center; gap: 1.2em; padding: .7em 1.2em .5em 1.4em; }
+header .time { font-size: 2.3rem; font-weight: 300; letter-spacing: -.02em; line-height: 1; }
+header .date { font-size: 1.05rem; color: var(--dim); }
+header .legend + .wx { margin-left: 1.2em; }
+header .legend.hidden + .wx, header .legend:empty + .wx { margin-left: auto; }
+header .wx { margin-left: auto; display: flex; align-items: center; gap: .45em; font-size: 1.15rem; }
+header .wx svg { font-size: 1.5em; }
+header .wx small { color: var(--dim); font-size: .8em; }
+header .art-btn { width: 2.6em; height: 2.6em; border-radius: 50%; display: grid; place-items: center;
+  background: var(--chip); color: var(--dim); font-size: 1.05rem; }
+nav { display: flex; flex-direction: column; gap: .5em; padding: .4em .6em 1em 1em; }
+nav button { display: flex; flex-direction: column; align-items: center; gap: .3em; padding: .8em .2em;
+  border-radius: 18px; color: var(--dim); font-size: .82rem; font-weight: 600; transition: background .2s, color .2s; }
+nav button svg { font-size: 1.9em; stroke-width: 1.8; }
+nav button.on { background: var(--panel); color: var(--accent); box-shadow: var(--shadow); }
+nav button .badge { font-size: .8em; background: var(--accent); color: var(--accent-ink); border-radius: 999px;
+  padding: 0 .5em; margin-top: -.2em; }
+main { position: relative; min-height: 0; padding: .3em 1.2em 1.1em .2em; }
+.view { height: 100%; }
+
+/* week */
+#week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .45em; }
+.day { background: var(--panel); border-radius: 16px; box-shadow: var(--shadow); display: flex;
+  flex-direction: column; min-height: 0; overflow: hidden; }
+.day h3 { padding: .5em .6em .4em; font-size: .8rem; font-weight: 600; color: var(--dim);
+  border-bottom: 1px solid var(--line); }
+.day h3 .row { display: flex; align-items: center; justify-content: space-between; gap: .3em; margin-top: .1em; }
+.day h3 b { font-size: 1.9em; font-weight: 300; color: var(--ink); line-height: 1; }
+.day h3 .wxd { font-weight: 500; font-size: .95em; display: flex; align-items: center; gap: .2em; color: var(--dim); }
+.day h3 .wxd svg { font-size: 1.3em; }
+.day.today { outline: 3px solid var(--accent); outline-offset: -3px; }
+.day.today h3 { color: var(--accent); }
+.day .evs { flex: 1; overflow-y: auto; padding: .45em; display: flex; flex-direction: column; gap: .35em; }
+.ev { border-radius: 10px; padding: .35em .5em .4em; background: color-mix(in srgb, var(--c) 14%, var(--panel));
+  border-left: 4px solid var(--c); font-size: .8rem; line-height: 1.25; }
+.ev .tm { font-weight: 700; color: color-mix(in srgb, var(--c) 75%, var(--ink)); font-size: .9em; }
+.ev .ti { font-weight: 500; overflow-wrap: anywhere; }
+.ev.all { background: var(--c); color: #fff; border-left: 0; font-weight: 600; }
+.ev.past { opacity: .45; }
+.day .none { color: var(--faint); font-size: .8rem; text-align: center; margin-top: 1em; }
+.empty-note { grid-column: 1 / -1; align-self: center; text-align: center; color: var(--dim); }
+.legend { display: flex; gap: .9em; font-size: .8rem; color: var(--dim); margin-left: auto; }
+.legend i { display: inline-block; width: .7em; height: .7em; border-radius: 3px; margin-right: .35em; background: var(--c); }
+
+/* lists */
+.listview { display: grid; grid-template-columns: 1.35fr 1fr; gap: 1em; }
+.listview.single { grid-template-columns: 1fr; }
+.headrow { display: flex; align-items: center; gap: 1em; }
+.headrow h2 { flex: none; }
+.headrow .add { flex: 1; max-width: 26em; margin-left: auto; }
+.card { background: var(--panel); border-radius: 18px; box-shadow: var(--shadow); min-height: 0;
+  display: flex; flex-direction: column; overflow: hidden; }
+.card h2 { font-size: 1.15rem; padding: .8em 1em .5em; display: flex; align-items: center; gap: .5em; }
+.card h2 .n { color: var(--dim); font-weight: 500; font-size: .85em; }
+.items { flex: 1; overflow-y: auto; padding: 0 .5em .6em; }
+.item { display: flex; align-items: center; gap: .8em; padding: .7em .6em; border-radius: 12px;
+  font-size: 1.15rem; transition: opacity .3s, background .2s; }
+.item + .item { border-top: 1px solid var(--line); }
+.item .box { width: 1.5em; height: 1.5em; border-radius: 8px; border: 2.5px solid var(--faint);
+  display: grid; place-items: center; flex: none; color: transparent; transition: all .2s; }
+.item.ticked .box { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.item.ticked .tx { text-decoration: line-through; color: var(--dim); }
+.item.gone { opacity: 0; }
+.items .none { color: var(--faint); text-align: center; padding: 2.5em 1em; font-size: 1.05rem; }
+.side { display: flex; flex-direction: column; gap: 1em; min-height: 0; }
+.add { display: flex; gap: .5em; padding: .8em; }
+.add input { flex: 1; min-width: 0; border: 2px solid var(--line); background: var(--bg); border-radius: 12px;
+  padding: .55em .8em; font-size: 1.1rem; outline: none; -webkit-user-select: text; user-select: text; }
+.add input:focus { border-color: var(--accent); }
+.btn { background: var(--accent); color: var(--accent-ink); border-radius: 12px; padding: .55em 1em;
+  font-weight: 700; display: inline-flex; align-items: center; gap: .4em; }
+.btn.ghost { background: var(--chip); color: var(--ink); }
+.chips { padding: 0 .8em .9em; display: flex; flex-wrap: wrap; gap: .45em; overflow-y: auto; align-content: flex-start; }
+.chips .lbl { width: 100%; font-size: .8rem; color: var(--dim); margin-bottom: .1em; }
+.chip { background: var(--chip); border-radius: 999px; padding: .4em .85em; font-size: .95rem; }
+.chip:active { background: var(--accent); color: var(--accent-ink); }
+.actions { padding: .8em; display: flex; gap: .5em; margin-top: auto; }
+
+#toast { position: fixed; z-index: 60; left: 50%; bottom: 1.4em; transform: translate(-50%, 200%);
+  background: var(--ink); color: var(--bg); padding: .7em 1.2em; border-radius: 12px; font-weight: 600;
+  transition: transform .35s; display: flex; gap: 1em; align-items: center; }
+#toast.on { transform: translate(-50%, 0); }
+#toast button { color: var(--accent); font-weight: 800; }
+body.night #toast button { color: #10201c; }
+#offline { position: fixed; z-index: 55; right: .7em; bottom: .6em; width: .6em; height: .6em; border-radius: 50%;
+  background: #d8a01e; }
+</style>
+</head>
+<body>
+
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-cart" viewBox="0 0 24 24"><path d="M3 4h2.2l2.3 11h10.8l2-8H6.3"/><circle cx="9" cy="19.5" r="1.4"/><circle cx="17" cy="19.5" r="1.4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="M8 12.5l3 3 5.5-6"/></symbol>
+  <symbol id="i-tick" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" stroke-width="3.2"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke-width="2.6"/></symbol>
+  <symbol id="i-print" viewBox="0 0 24 24"><path d="M7 9V3h10v6M7 17H4.5A1.5 1.5 0 0 1 3 15.5v-5A1.5 1.5 0 0 1 4.5 9h15a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5H17"/><path d="M7 14h10v7H7z"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-8 9"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><path d="M4 13a8 8 0 0 1 16 0"/><rect x="2.5" y="13" width="4.5" height="7" rx="1.8"/><rect x="17" y="13" width="4.5" height="7" rx="1.8"/></symbol>
+  <symbol id="w-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></symbol>
+  <symbol id="w-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
+  <symbol id="w-partly" viewBox="0 0 24 24"><path d="M8.5 3.5v1.3M3.6 8.5H5M5 5l1 1M13 5.6l-.9.9"/><path d="M5.6 11.3a3.8 3.8 0 0 1 6.9-3"/><path d="M8 20h9.5a3.5 3.5 0 0 0 .3-7 5 5 0 0 0-9.6.9A3.1 3.1 0 0 0 8 20z"/></symbol>
+  <symbol id="w-cloud" viewBox="0 0 24 24"><path d="M7 19h10.5a4 4 0 0 0 .4-8 6 6 0 0 0-11.6 1.1A3.5 3.5 0 0 0 7 19z"/></symbol>
+  <symbol id="w-rain" viewBox="0 0 24 24"><path d="M7 15h10.5a4 4 0 0 0 .4-8 6 6 0 0 0-11.6 1.1A3.5 3.5 0 0 0 7 15z"/><path d="M8 18l-1 2.5M12.5 18l-1 2.5M17 18l-1 2.5"/></symbol>
+  <symbol id="w-snow" viewBox="0 0 24 24"><path d="M7 15h10.5a4 4 0 0 0 .4-8 6 6 0 0 0-11.6 1.1A3.5 3.5 0 0 0 7 15z"/><path d="M8 19h.01M12 20.5h.01M16 19h.01" stroke-width="3"/></symbol>
+  <symbol id="w-storm" viewBox="0 0 24 24"><path d="M7 15h10.5a4 4 0 0 0 .4-8 6 6 0 0 0-11.6 1.1A3.5 3.5 0 0 0 7 15z"/><path d="M12.5 13.5l-2 4h3l-2 4"/></symbol>
+  <symbol id="w-fog" viewBox="0 0 24 24"><path d="M4 9h16M3 13h18M5 17h14"/></symbol>
+</svg>
+
+<div id="busy"><span class="dot"></span><svg><use href="#i-phone"/></svg><span id="busy-label">On a call</span><small id="busy-since"></small></div>
+
+<div id="saver">
+  <img id="sa" alt=""><img id="sb" alt="">
+  <div class="meta">
+    <div id="caption"></div>
+    <div class="clock"><div class="time" data-clock></div><div class="sub"><span data-date></span><span data-wx></span></div></div>
+  </div>
+</div>
+
+<div id="dash" class="hidden">
+  <header>
+    <div class="time" data-clock></div>
+    <div class="date" data-datelong></div>
+    <div class="legend" id="legend"></div>
+    <div class="wx" data-wxlong></div>
+    <button class="art-btn" id="to-saver" aria-label="Pictures"><svg><use href="#i-image"/></svg></button>
+  </header>
+  <nav>
+    <button data-view="week" class="on"><svg><use href="#i-cal"/></svg>Week</button>
+    <button data-view="shopping"><svg><use href="#i-cart"/></svg>Shopping<span class="badge hidden" data-count="shopping"></span></button>
+    <button data-view="family"><svg><use href="#i-check"/></svg>To do<span class="badge hidden" data-count="family"></span></button>
+  </nav>
+  <main>
+    <section class="view" id="v-week"><div id="week" style="height:100%"></div></section>
+
+    <section class="view listview hidden" id="v-shopping" data-kind="shopping">
+      <div class="card"><h2>Shopping list <span class="n"></span></h2><div class="items"></div></div>
+      <div class="side">
+        <div class="card" style="flex:1">
+          <form class="add"><input placeholder="Add something…" enterkeyhint="done" autocomplete="off"><button class="btn" aria-label="Add"><svg><use href="#i-plus"/></svg></button></form>
+          <div class="chips"></div>
+        </div>
+        <div class="card"><div class="actions"><button class="btn ghost print" style="flex:1;justify-content:center"><svg><use href="#i-print"/></svg>Print list</button></div></div>
+      </div>
+    </section>
+
+    <section class="view listview single hidden" id="v-family" data-kind="family">
+      <div class="card">
+        <div class="headrow"><h2>To do <span class="n"></span></h2>
+          <form class="add"><input placeholder="Add a to-do…" enterkeyhint="done" autocomplete="off"><button class="btn" aria-label="Add"><svg><use href="#i-plus"/></svg></button></form></div>
+        <div class="items"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="toast"><span></span><button class="hidden">Undo</button></div>
+<div id="offline" class="hidden" title="Can't reach the server"></div>
+
+<script>
+'use strict';
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const icon = id => `<svg><use href="#${id}"/></svg>`;
+
+const IDLE_TO_SAVER_MS = 90e3;     // dashboard → pictures after this long untouched
+const SLIDE_MS = 40e3;
+const PALETTE = ['--c1','--c2','--c3','--c4','--c5','--c6'];
+
+let config = {}, mode = 'saver', view = 'week', asleep = false, lastTouch = Date.now();
+let weather = null;
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts,
+    body: opts.body ? JSON.stringify(opts.body) : undefined });
+  if (!r.ok) throw new Error(`${path}: ${r.status}`);
+  return r.json();
+}
+function setOffline(off) { $('#offline').classList.toggle('hidden', !off); }
+
+/* ── clock + theme ─────────────────────────────── */
+function tick() {
+  const d = new Date();
+  const t = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  $$('[data-clock]').forEach(e => e.textContent = t);
+  $$('[data-date]').forEach(e => e.textContent = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' }));
+  $$('[data-datelong]').forEach(e => e.textContent = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }));
+  const h = d.getHours();
+  document.body.classList.toggle('night', h >= 20 || h < 7);
+}
+
+function wxIcon(name, isDay = true) { return icon(name === 'sun' && !isDay ? 'w-moon' : 'w-' + name); }
+function renderWeather() {
+  if (!weather) return;
+  $$('[data-wx]').forEach(e => e.innerHTML = `· ${weather.temp}°`);
+  const today = weather.days?.[0];
+  $$('[data-wxlong]').forEach(e => e.innerHTML =
+    `${wxIcon(weather.icon, weather.isDay)}<b>${weather.temp}°</b>` +
+    (today ? `<small>${today.max}° / ${today.min}°${today.rain >= 30 ? ` · ${today.rain}% rain` : ''}</small>` : ''));
+}
+
+/* ── busy + weather poll ───────────────────────── */
+let busySince = null;
+async function pollState() {
+  try {
+    const s = await api('/api/state');
+    setOffline(false);
+    const on = !!s.busy?.on;
+    if (on && !document.body.classList.contains('busy')) kiosk('wake');
+    document.body.classList.toggle('busy', on);
+    busySince = on && s.busy.since ? new Date(s.busy.since) : null;
+    renderBusySince();
+    if (s.weather) { weather = s.weather; renderWeather(); }
+  } catch { setOffline(true); }
+}
+function renderBusySince() {
+  if (!busySince) { $('#busy-since').textContent = ''; return; }
+  const m = Math.max(0, Math.round((Date.now() - busySince) / 60000));
+  $('#busy-since').textContent = m < 1 ? 'just now' : `${m} min`;
+}
+
+/* ── modes ─────────────────────────────────────── */
+function showSaver() {
+  if (document.activeElement?.tagName === 'INPUT') document.activeElement.blur();
+  mode = 'saver';
+  $('#dash').classList.add('hidden');
+  $('#saver').classList.remove('hidden');
+  if (!asleep) nextSlide(true);
+}
+function showDash(v) {
+  mode = 'dash';
+  lastTouch = Date.now();
+  $('#saver').classList.add('hidden');
+  $('#dash').classList.remove('hidden');
+  clearTimeout(slideTimer);
+  setView(v || view);
+}
+function setView(v) {
+  view = v;
+  $$('nav button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+  $$('.view').forEach(s => s.classList.toggle('hidden', s.id !== 'v-' + v));
+  $('#legend').classList.toggle('hidden', v !== 'week');
+  if (v === 'week') loadWeek(); else loadList(v);
+}
+
+$('#saver').addEventListener('click', () => showDash());
+$('#to-saver').addEventListener('click', showSaver);
+$$('nav button').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, () => lastTouch = Date.now(), true));
+setInterval(() => {
+  const typing = document.activeElement?.tagName === 'INPUT' && document.activeElement.value;
+  if (mode === 'dash' && !typing && Date.now() - lastTouch > IDLE_TO_SAVER_MS) showSaver();
+}, 5e3);
+
+/* kiosk app bridge (Android wrapper); harmless in a normal browser */
+function kiosk(cmd) { try { window.Kiosk?.[cmd]?.(); } catch {} }
+window.addEventListener('kiosk', e => {
+  asleep = e.detail?.state === 'asleep';
+  if (asleep) { showSaver(); clearTimeout(slideTimer); }
+  else if (mode === 'saver') nextSlide(true);
+});
+
+/* ── slideshow ─────────────────────────────────── */
+let slides = [], slideIdx = -1, slideTimer = null, front = $('#sa'), back = $('#sb');
+async function loadSlides() {
+  try { const s = await api('/api/slides'); if (s.length) { slides = s; slideIdx = -1; } } catch {}
+}
+function captionFor(s) {
+  if (s.kind === 'art') return `<div class="a">${esc(s.artist)}</div><div class="t">${esc(s.title)}${s.date ? ', ' + esc(s.date) : ''}</div>`;
+  const when = s.taken ? new Date(s.taken).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) : '';
+  return `<div class="a">${esc(when)}</div><div class="t">${esc(s.place)}</div>`;
+}
+function nextSlide(immediate) {
+  clearTimeout(slideTimer);
+  if (mode !== 'saver' || asleep) return;
+  if (!slides.length) { slideTimer = setTimeout(() => nextSlide(true), 5e3); return; }
+  if (immediate && front.classList.contains('on')) { slideTimer = setTimeout(nextSlide, SLIDE_MS); return; }
+  slideIdx = (slideIdx + 1) % slides.length;
+  const s = slides[slideIdx];
+  const img = back;
+  img.onload = () => {
+    // photos fill the screen; paintings are never cropped
+    img.classList.toggle('cover', s.kind === 'photo' && img.naturalWidth > img.naturalHeight);
+    img.classList.add('on'); front.classList.remove('on');
+    [front, back] = [img, front];
+    $('#caption').innerHTML = captionFor(s);
+    slideTimer = setTimeout(nextSlide, SLIDE_MS);
+  };
+  img.onerror = () => { slideTimer = setTimeout(nextSlide, 1e3); };
+  img.src = s.src;
+}
+
+/* ── week ──────────────────────────────────────── */
+const dayKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+function isoLocal(d) {
+  const off = -d.getTimezoneOffset(), sign = off >= 0 ? '+' : '-', a = Math.abs(off);
+  return `${dayKey(d)}T00:00:00${sign}${String(a/60|0).padStart(2,'0')}:${String(a%60).padStart(2,'0')}`;
+}
+let calColors = {};
+async function loadWeek() {
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const days = [...Array(7)].map((_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7);
+  let data = { events: [], calendars: [] };
+  try {
+    data = await api(`/api/calendar?start=${encodeURIComponent(isoLocal(start))}&end=${encodeURIComponent(isoLocal(end))}`);
+    setOffline(false);
+  } catch { setOffline(true); }
+  data.calendars.forEach((c, i) => calColors[c.label] = c.color || `var(${PALETTE[i % PALETTE.length]})`);
+  $('#legend').innerHTML = data.calendars.length > 1
+    ? data.calendars.map(c => `<span style="--c:${calColors[c.label]}"><i></i>${esc(c.label)}</span>`).join('') : '';
+
+  const now = new Date();
+  const wxByDate = Object.fromEntries((weather?.days || []).map(w => [w.date, w]));
+  $('#week').innerHTML = days.map((d, i) => {
+    const k = dayKey(d), dEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+    const evs = data.events.filter(e => {
+      if (e.allDay) return e.start <= k && k < e.end;          // end date is exclusive
+      const s = new Date(e.start), en = new Date(e.end);
+      return s < dEnd && en > d;
+    });
+    const w = wxByDate[k];
+    const head = `<h3>${i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString('en-GB', { weekday: 'long' })}` +
+      `<div class="row"><b>${d.getDate()}</b>${w ? `<span class="wxd">${wxIcon(w.icon)}${w.max}°</span>` : ''}</div></h3>`;
+    const body = evs.length ? evs.map(e => {
+      const c = calColors[e.calendar] || 'var(--c2)';
+      if (e.allDay) return `<div class="ev all" style="--c:${c}"><div class="ti">${esc(e.title)}</div></div>`;
+      const s = new Date(e.start), en = new Date(e.end);
+      const tm = s < d ? 'cont.' : s.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+      return `<div class="ev${en < now ? ' past' : ''}" style="--c:${c}"><div class="tm">${tm}</div><div class="ti">${esc(e.title)}</div></div>`;
+    }).join('') : `<div class="none">—</div>`;
+    return `<div class="day${i === 0 ? ' today' : ''}">${head}<div class="evs">${body}</div></div>`;
+  }).join('') + (data.unconfigured ? `<div class="empty-note" style="position:absolute;inset:auto 0 45%;">No calendar connected yet</div>` : '');
+}
+
+/* ── lists ─────────────────────────────────────── */
+const lists = {};
+async function loadList(kind, data) {
+  try { lists[kind] = data || await api(`/api/list/${kind}`); setOffline(false); }
+  catch { setOffline(true); return; }
+  renderList(kind);
+}
+function renderList(kind) {
+  const sec = $(`#v-${kind}`), l = lists[kind];
+  if (!l) return;
+  const badge = $(`[data-count="${kind}"]`);
+  badge.textContent = l.items.length; badge.classList.toggle('hidden', !l.items.length);
+  $('h2 .n', sec).textContent = l.items.length ? `· ${l.items.length}` : '';
+  $('.items', sec).innerHTML = l.items.length
+    ? l.items.map(i => `<div class="item" data-id="${esc(i.id)}"><span class="box">${icon('i-tick')}</span><span class="tx">${esc(i.text)}</span></div>`).join('')
+    : `<div class="none">${kind === 'shopping' ? 'Nothing to buy 🎉' : 'All done 🎉'}</div>`;
+  const chips = $('.chips', sec);
+  if (!chips) return;
+  chips.innerHTML = l.recent.length
+    ? `<div class="lbl">${kind === 'shopping' ? 'Bought before — tap to add again' : 'Done before'}</div>` +
+      l.recent.slice(0, 40).map(t => `<button class="chip">${esc(t)}</button>`).join('')
+    : kind === 'shopping' ? `<div class="lbl">Things you tick off show up here, so you can add them again with one tap.</div>` : '';
+}
+
+const pendingDone = new Map();
+$$('.listview').forEach(sec => {
+  const kind = sec.dataset.kind;
+  $('.items', sec).addEventListener('click', e => {
+    const row = e.target.closest('.item'); if (!row) return;
+    const id = row.dataset.id;
+    if (pendingDone.has(id)) {                       // second tap = undo
+      clearTimeout(pendingDone.get(id)); pendingDone.delete(id);
+      row.classList.remove('ticked'); return;
+    }
+    row.classList.add('ticked');
+    pendingDone.set(id, setTimeout(async () => {
+      row.classList.add('gone');
+      try { await loadList(kind, await api(`/api/list/${kind}/${id}/done`, { method: 'POST', body: { done: true } })); }
+      catch { row.classList.remove('ticked', 'gone'); toast("Couldn't save — try again"); }
+      pendingDone.delete(id);
+    }, 2500));
+  });
+  $('.add', sec).addEventListener('submit', async e => {
+    e.preventDefault();
+    const input = $('input', sec), text = input.value.trim();
+    if (!text) { input.blur(); return; }
+    input.value = '';
+    try { await loadList(kind, await api(`/api/list/${kind}`, { method: 'POST', body: { text } })); }
+    catch { input.value = text; toast("Couldn't add — try again"); }
+  });
+  $('.chips', sec)?.addEventListener('click', async e => {
+    const chip = e.target.closest('.chip'); if (!chip) return;
+    chip.remove();
+    try { await loadList(kind, await api(`/api/list/${kind}`, { method: 'POST', body: { text: chip.textContent } })); }
+    catch { toast("Couldn't add — try again"); }
+  });
+  $('.print', sec)?.addEventListener('click', async () => {
+    if (!lists[kind]?.items.length) { toast('The list is empty'); return; }
+    try {
+      const r = await api(`/api/list/${kind}/print`, { method: 'POST' });
+      toast(r.ok ? 'Printing…' : `Printer: ${r.result}`);
+    } catch { toast("Couldn't reach the printer"); }
+  });
+});
+
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast'); $('span', t).textContent = msg; t.classList.add('on');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 3000);
+}
+
+/* ── boot ──────────────────────────────────────── */
+(async () => {
+  try { config = await api('/api/config'); } catch {}
+  $('#busy-label').textContent = config.busyLabel || 'On a call';
+  tick(); setInterval(tick, 1e3);
+  pollState(); setInterval(pollState, 4e3);
+  setInterval(renderBusySince, 30e3);
+  await loadSlides(); setInterval(loadSlides, 3600e3);
+  ['shopping', 'family'].forEach(k => loadList(k));
+  setInterval(() => {                                  // keep badges + open view fresh
+    ['shopping', 'family'].forEach(k => { if (!(mode === 'dash' && view === k && pendingDone.size)) loadList(k); });
+    if (mode === 'dash' && view === 'week') loadWeek();
+  }, 60e3);
+  if (location.hash === '#dash') showDash(); else showSaver();
+})();
+</script>
+</body>
+</html>
