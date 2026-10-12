@@ -27,7 +27,8 @@ Two parts:
   full-screen WebView, locks the tablet to it, wakes on camera motion and
   drives the printer.
 - **`mac/`** is a small agent for the office Mac. It tells Hearth the moment a
-  camera, or a microphone for more than a few seconds, is in use.
+  camera, or a microphone for more than a few seconds, is in use. How it knows,
+  and the three-line protocol, are in [mac/README.md](mac/README.md).
 
 ## Why it exists
 
@@ -89,6 +90,17 @@ when someone has unplugged it.
 cd server && cp deploy.env.example deploy.env    # fill in
 docker compose up -d
 ```
+
+Or the published image, anywhere a container runs:
+
+```sh
+docker run -d --name hearth -p 5007:5007 --env-file deploy.env \
+  -v hearth-data:/app/data ghcr.io/no1089/hearth
+```
+
+Running it without a home server at all, as a Home Assistant add-on with lists
+from HA's own to-do entities, is planned in
+[docs/running-elsewhere.md](docs/running-elsewhere.md).
 
 The tablet side, including provisioning and the printer, is in
 [android/README.md](android/README.md).

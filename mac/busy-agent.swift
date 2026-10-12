@@ -78,6 +78,8 @@ func log(_ s: String) {
     fflush(stdout)
 }
 
+var reportFailing = false      // log failures once, not every heartbeat, or the log file never stops growing
+
 func post(_ url: URL, _ body: [String: Any]) {
     var req = URLRequest(url: url, timeoutInterval: 5)
     req.httpMethod = "POST"
@@ -85,8 +87,15 @@ func post(_ url: URL, _ body: [String: Any]) {
     req.httpBody = try? JSONSerialization.data(withJSONObject: body)
     let done = DispatchSemaphore(value: 0)
     URLSession.shared.dataTask(with: req) { _, resp, err in
-        if let err = err { log("report failed: \(err.localizedDescription)") }
-        else if let code = (resp as? HTTPURLResponse)?.statusCode, code != 200 { log("report got HTTP \(code)") }
+        var failure: String? = nil
+        if let err = err { failure = err.localizedDescription }
+        else if let code = (resp as? HTTPURLResponse)?.statusCode, code != 200 { failure = "HTTP \(code)" }
+        if let f = failure {
+            if !reportFailing { log("report failed: \(f) (will keep trying quietly)") }
+            reportFailing = true
+        } else if reportFailing {
+            log("reports reaching Hearth again"); reportFailing = false
+        }
         done.signal()
     }.resume()
     _ = done.wait(timeout: .now() + 6)

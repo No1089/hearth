@@ -405,7 +405,7 @@ body.night #toast button { color: #10201c; }
 'use strict';
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon = id => `<svg><use href="#${id}"/></svg>`;
 
 const IDLE_TO_SAVER_MS = 90e3;     // dashboard → pictures after this long untouched
@@ -473,6 +473,8 @@ function renderBusySince() {
 /* ── modes ─────────────────────────────────────── */
 function showSaver() {
   setSaverPanel(false);
+  if (!$('#pin').classList.contains('hidden')) $('#pin').click();   // cancels a PIN prompt left open
+  $('#ce-cancel').click();                                           // and the chore editor
   if (document.activeElement?.tagName === 'INPUT') document.activeElement.blur();
   mode = 'saver';
   $('#dash').classList.add('hidden');
@@ -866,7 +868,7 @@ $('#music-refresh').addEventListener('click', async () => {
 });
 function renderFavs() {
   $('#fav-grid').innerHTML = favs?.length
-    ? favs.map((f, i) => `<button class="fav" data-i="${i}"><div class="th" ${f.thumb ? `style="background-image:url('${esc(f.thumb)}')"` : ''}>${f.thumb ? '' : icon('i-music')}</div><div class="nm">${esc(f.title)}</div></button>`).join('')
+    ? favs.map((f, i) => `<button class="fav" data-i="${i}"><div class="th" ${f.thumb ? `style="background-image:url('/api/music/thumb?u=${encodeURIComponent(f.thumb)}')"` : ''}>${f.thumb ? '' : icon('i-music')}</div><div class="nm">${esc(f.title)}</div></button>`).join('')
     : `<div class="none">${favs ? 'No favourites yet — add some in the Sonos app (♥) and they appear here.' : 'Loading…'}</div>`;
 }
 async function musicAction(act) {

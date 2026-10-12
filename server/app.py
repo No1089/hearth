@@ -11,13 +11,14 @@ to-dos, office "busy" banner). This server only aggregates; it owns no data:
 - pocket    → the pocket-money app (balances, goals); chores are kept here, and
               crediting a day needs the parent PIN
 - calendar  → Home Assistant calendar entities
-- busy      → Home Assistant binary sensors (any `on` = busy)
+- busy      → the Mac busy agent (POST /api/busy) and/or Home Assistant binary
+              sensors (any `on` = busy)
 - slideshow → frame-art gallery JSON + an immich album (proxied, key stays here)
 - weather   → open-meteo
 - music     → one Home Assistant media_player (the kitchen Sonos) + its favourites
 """
 
-import json, os, random, threading, time, urllib.error, urllib.parse, urllib.request
+import hmac, json, os, random, threading, time, urllib.error, urllib.parse, urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -58,8 +59,9 @@ TIMEZONE         = env('TZ', 'UTC')
 # ── tiny TTL cache ────────────────────────────────────────────────────────────
 _cache, _lock = {}, threading.Lock()
 
-def cached(key, ttl, fn):
-    """Return fn() cached for ttl seconds; on failure serve the last good value."""
+def cached(key, ttl, fn, stale_ok=6 * 3600):
+    """Return fn() cached for ttl seconds. On failure serve the last good value, but
+    only while it is younger than stale_ok: a banner must not stay up because HA went away."""
     now = time.time()
     with _lock:
         hit = _cache.get(key)
@@ -69,7 +71,7 @@ def cached(key, ttl, fn):
         val = fn()
     except Exception as e:
         app.logger.warning('%s: %s', key, e)
-        if hit:
+        if hit and now - hit[0] < stale_ok:
             return hit[1]
         raise
     with _lock:
@@ -92,8 +94,8 @@ def http_json(url, method='GET', body=None, headers=None, timeout=8):
         raw = r.read()
     return json.loads(raw) if raw else None
 
-def ha(path):
-    return http_json(f'{HA_URL}{path}', headers={'Authorization': f'Bearer {HA_TOKEN}'})
+def ha(path, timeout=8):
+    return http_json(f'{HA_URL}{path}', headers={'Authorization': f'Bearer {HA_TOKEN}'}, timeout=timeout)
 
 # ── pages ─────────────────────────────────────────────────────────────────────
 
@@ -123,36 +125,48 @@ def api_config():
 # Pushed by the Mac busy agent (mac/busy-agent): {source: {busy, since, devices, seen}}.
 # A report counts only while the agent keeps checking in, so a Mac that sleeps
 # or loses the network mid-call can't leave the banner stuck on.
-_pushed_busy, BUSY_STALE_S = {}, 90
+_pushed_busy, _busy_lock, BUSY_STALE_S, MAX_SOURCES = {}, threading.Lock(), 90, 16
 
 @app.route('/api/busy', methods=['POST'])
 def api_busy_push():
-    b = request.json or {}
+    b = request.json if isinstance(request.json, dict) else {}
     src = str(b.get('source') or 'mac')[:40]
-    prev = _pushed_busy.get(src, {})
     busy = bool(b.get('busy'))
-    _pushed_busy[src] = {'busy': busy, 'devices': [str(d)[:60] for d in b.get('devices', [])][:6],
-                         'since': prev.get('since') if prev.get('busy') == busy and prev.get('since')
-                                  else datetime.now(timezone.utc).isoformat(),
-                         'seen': time.time()}
+    devices = b.get('devices') if isinstance(b.get('devices'), list) else []
+    with _busy_lock:
+        prev = _pushed_busy.get(src, {})
+        _pushed_busy[src] = {'busy': busy, 'devices': [str(d)[:60] for d in devices][:6],
+                             'since': prev.get('since') if prev.get('busy') == busy and prev.get('since')
+                                      else datetime.now(timezone.utc).isoformat(),
+                             'seen': time.time()}
+        for old in sorted(_pushed_busy, key=lambda k: _pushed_busy[k]['seen'])[:-MAX_SOURCES]:
+            del _pushed_busy[old]                      # anyone on the LAN can post; don't let it grow
     invalidate('busy')
     return jsonify({'ok': True})
 
 def _busy():
-    on, since = False, None
-    for src, r in _pushed_busy.items():
+    on, since, errors = False, None, 0
+    with _busy_lock:
+        reports = list(_pushed_busy.values())
+    for r in reports:
         if r['busy'] and time.time() - r['seen'] < BUSY_STALE_S:
             on = True
             since = min(since, r['since']) if since else r['since']
-    if not (HA_URL and HA_TOKEN and HA_BUSY_ENTITIES):
-        return {'on': on, 'since': since}
-    for ent in HA_BUSY_ENTITIES:
-        st = ha(f'/api/states/{ent}')
-        if st and st.get('state') == 'on':
-            on = True
-            changed = st.get('last_changed')
-            since = min(since, changed) if since else changed
-    return {'on': on, 'since': since}
+    if HA_URL and HA_TOKEN and HA_BUSY_ENTITIES:
+        for ent in HA_BUSY_ENTITIES:
+            try:
+                st = ha(f'/api/states/{ent}', timeout=3)
+            except Exception:
+                errors += 1                            # HA down must not hide the Mac agent's answer
+                continue
+            if st and st.get('state') == 'on':
+                on = True
+                changed = st.get('last_changed')
+                since = min(since, changed) if since else changed
+    out = {'on': on, 'since': since}
+    if errors:
+        out['haError'] = errors
+    return out
 
 WMO = {0: ('Clear', 'sun'), 1: ('Mostly clear', 'sun'), 2: ('Partly cloudy', 'partly'),
        3: ('Overcast', 'cloud'), 45: ('Fog', 'fog'), 48: ('Fog', 'fog'),
@@ -182,7 +196,7 @@ def _weather():
             'isDay': bool(cur.get('is_day', 1)), 'days': days}
 
 def _wake():
-    return any((ha(f'/api/states/{e}') or {}).get('state') == 'on' for e in HA_WAKE_ENTITIES)
+    return any((ha(f'/api/states/{e}', timeout=3) or {}).get('state') == 'on' for e in HA_WAKE_ENTITIES)
 
 def _page_version():
     # changes whenever the page or this server is redeployed; the page reloads itself on a change
@@ -197,7 +211,7 @@ def api_state():
         out['busy'] = {'on': False, 'error': True}
     if HA_URL and HA_TOKEN and HA_WAKE_ENTITIES:
         try:
-            out['wake'] = cached('wake', 3, _wake)       # e.g. kitchen occupancy → page wakes the screen
+            out['wake'] = cached('wake', 3, _wake, stale_ok=30)   # e.g. kitchen occupancy → page wakes the screen
         except Exception:
             pass
     if WEATHER_LAT and WEATHER_LON:
@@ -344,23 +358,24 @@ def api_list_print(kind):
 
 # ── pocket money (balances from the pocket app; chores kept here) ───────────
 
-_pin_fails = {'n': 0, 'until': 0.0}
+_pin_fails, _pin_lock = {'n': 0, 'until': 0.0}, threading.Lock()
 _chores_lock = threading.Lock()
 
 def _check_pin(pin):
     """Parent PIN, with a lockout after 5 wrong tries so it can't be guessed by tapping."""
-    now = time.time()
     if not POCKET_PIN:
         return False
-    if now < _pin_fails['until']:
+    with _pin_lock:
+        now = time.time()
+        if now < _pin_fails['until']:
+            return False
+        if hmac.compare_digest(str(pin or ''), POCKET_PIN):
+            _pin_fails['n'] = 0
+            return True
+        _pin_fails['n'] += 1
+        if _pin_fails['n'] >= 5:
+            _pin_fails['n'], _pin_fails['until'] = 0, now + 120
         return False
-    if str(pin or '') == POCKET_PIN:
-        _pin_fails['n'] = 0
-        return True
-    _pin_fails['n'] += 1
-    if _pin_fails['n'] >= 5:
-        _pin_fails['n'], _pin_fails['until'] = 0, now + 120
-    return False
 
 def _chores_file():
     return DATA_DIR / 'chores.json'
@@ -446,8 +461,8 @@ def api_pocket_credit(kid_id):
     _pocket_required()
     if not _check_pin((request.json or {}).get('pin')):
         return jsonify({'error': 'Wrong PIN' if POCKET_PIN else 'No parent PIN set yet'}), 403
-    today = _today()
     view = _pocket_view()
+    today = view['today']                               # the pocket app's "today", same as `credited` uses
     kid = next((k for k in view['kids'] if k['id'] == kid_id), None)
     if not kid:
         abort(404)
@@ -540,8 +555,11 @@ def api_photo(asset_id):
     req = urllib.request.Request(
         f'{IMMICH_URL}/api/assets/{asset_id}/thumbnail?size=preview',
         headers={'x-api-key': IMMICH_API_KEY})
-    with urllib.request.urlopen(req, timeout=20) as r:
-        body, ctype = r.read(), r.headers.get('Content-Type', 'image/jpeg')
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            body, ctype = r.read(), r.headers.get('Content-Type', 'image/jpeg')
+    except urllib.error.URLError:
+        abort(502)
     return Response(body, content_type=ctype, headers={'Cache-Control': 'public, max-age=86400'})
 
 # ── music (kitchen speaker via Home Assistant) ───────────────────────────────
@@ -628,6 +646,35 @@ def api_music_art():
     except urllib.error.URLError:
         abort(404)
     return Response(body, content_type=ctype, headers={'Cache-Control': 'public, max-age=3600'})
+
+_thumbs, _thumbs_lock = {}, threading.Lock()
+
+@app.route('/api/music/thumb')
+def api_music_thumb():
+    """Favourite artwork, fetched here so the tablet needs no internet access of its own.
+    Only URLs that appear in the favourites list are fetched: this is not an open proxy."""
+    _music_required()
+    u = request.args.get('u', '')
+    try:
+        allowed = {f['thumb'] for f in cached('favourites', 600, _favourites) if f.get('thumb')}
+    except Exception:
+        abort(502)
+    if u not in allowed:
+        abort(404)
+    with _thumbs_lock:
+        hit = _thumbs.get(u)
+    if not hit or time.time() - hit[0] > 86400:
+        try:
+            req = urllib.request.Request(u, headers={'User-Agent': 'hearth/1.0'})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                hit = (time.time(), r.read(2_000_000), r.headers.get('Content-Type', 'image/jpeg'))
+        except urllib.error.URLError:
+            abort(502)
+        with _thumbs_lock:
+            _thumbs[u] = hit
+            for k in list(_thumbs)[:-64]:               # a few dozen covers is plenty
+                del _thumbs[k]
+    return Response(hit[1], content_type=hit[2], headers={'Cache-Control': 'public, max-age=86400'})
 
 @app.route('/api/music/<action>', methods=['POST'])
 def api_music_action(action):
