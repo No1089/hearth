@@ -1,7 +1,7 @@
-# Home Kiosk (Android)
+# Hearth kiosk (Android)
 
 A small home-made replacement for Fully Kiosk Browser, built for a Samsung Galaxy Tab A11 8.7"
-(1340×800, Android 15 / One UI) hanging in the kitchen and showing the home-dash web dashboard.
+(1340×800, Android 15 / One UI) hanging in the kitchen and showing the Hearth web dashboard.
 
 - Full-screen, immersive, landscape-locked WebView (JS, DOM storage, autoplay without gesture).
 - Reconnect screen + retry with backoff (5 s → 60 s) on load errors / 5xx / renderer crashes; reloads

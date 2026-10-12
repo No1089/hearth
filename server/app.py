@@ -110,7 +110,7 @@ def api_config():
     return jsonify({
         'busyLabel': BUSY_LABEL,
         'hasCalendar': bool(HA_URL and HA_TOKEN and HA_CALENDARS),
-        'hasBusy': bool(HA_URL and HA_TOKEN and HA_BUSY_ENTITIES),
+        'hasBusy': True,
         'hasWeather': bool(WEATHER_LAT and WEATHER_LON),
         'hasMusic': bool(HA_URL and HA_TOKEN and MUSIC_ENTITY),
         'musicMaxVolume': MUSIC_MAX_VOLUME,
@@ -120,10 +120,32 @@ def api_config():
 
 # ── busy + weather (polled every few seconds) ────────────────────────────────
 
+# Pushed by the Mac busy agent (mac/busy-agent): {source: {busy, since, devices, seen}}.
+# A report counts only while the agent keeps checking in, so a Mac that sleeps
+# or loses the network mid-call can't leave the banner stuck on.
+_pushed_busy, BUSY_STALE_S = {}, 90
+
+@app.route('/api/busy', methods=['POST'])
+def api_busy_push():
+    b = request.json or {}
+    src = str(b.get('source') or 'mac')[:40]
+    prev = _pushed_busy.get(src, {})
+    busy = bool(b.get('busy'))
+    _pushed_busy[src] = {'busy': busy, 'devices': [str(d)[:60] for d in b.get('devices', [])][:6],
+                         'since': prev.get('since') if prev.get('busy') == busy and prev.get('since')
+                                  else datetime.now(timezone.utc).isoformat(),
+                         'seen': time.time()}
+    invalidate('busy')
+    return jsonify({'ok': True})
+
 def _busy():
-    if not (HA_URL and HA_TOKEN and HA_BUSY_ENTITIES):
-        return {'on': False}
     on, since = False, None
+    for src, r in _pushed_busy.items():
+        if r['busy'] and time.time() - r['seen'] < BUSY_STALE_S:
+            on = True
+            since = min(since, r['since']) if since else r['since']
+    if not (HA_URL and HA_TOKEN and HA_BUSY_ENTITIES):
+        return {'on': on, 'since': since}
     for ent in HA_BUSY_ENTITIES:
         st = ha(f'/api/states/{ent}')
         if st and st.get('state') == 'on':

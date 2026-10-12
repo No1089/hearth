@@ -1,4 +1,4 @@
-# home-dash
+# Hearth
 
 A kitchen wall dashboard on a spare Galaxy Tab A11. It shows public-domain
 paintings and family photos until someone walks up. A tap then shows the
@@ -17,6 +17,8 @@ Two parts:
 - **`android/`** is a home-made replacement for Fully Kiosk Browser. It runs a
   full-screen WebView, locks the tablet to it, wakes on camera motion and
   drives the printer.
+- **`mac/`** is a small agent for the office Mac. It tells Hearth the moment a
+  camera, or a microphone for more than a few seconds, is in use.
 
 ## Why it exists
 
@@ -66,7 +68,7 @@ used to prove the protocol from a laptop before any Kotlin was written.
 | **To do** | Every section of the todo app as tabs, Home and Kids first, with done-before suggestions. |
 | **Pocket** | Balance and saving goals per kid. Kids tick their own chores, and a parent PIN adds the day. Prints a receipt. |
 | **Music** | The kitchen Sonos through Home Assistant, with favourites and a volume cap. |
-| **Busy** | Any Home Assistant sensor, e.g. the Mac's mic or camera in use. |
+| **Busy** | Red "on a call" banner, from `mac/busy-agent` or any Home Assistant sensor. |
 
 The page reloads itself after a deploy. It wakes the screen when the busy
 banner or a kitchen occupancy sensor turns on, and shows a battery gauge only
@@ -82,6 +84,9 @@ docker compose up -d
 The tablet side, including provisioning and the printer, is in
 [android/README.md](android/README.md).
 
+On the office Mac, `mac/install.sh https://hearth.example.com` builds the busy
+agent and runs it at login. `--uninstall` removes it.
+
 ## Things worth knowing
 
 - The printer powers itself off when idle, charging or not. The app pings it
@@ -90,5 +95,11 @@ The tablet side, including provisioning and the printer, is in
 - Pocket-money days are set with the pocket app's explicit `edit` call,
   never its toggle. A toggle in that app is how a bought Minecraft book once
   quietly refunded itself.
+- The busy agent exists because the Home Assistant Mac app's "camera in use"
+  sensor went quietly unavailable on macOS 26, while Core Media I/O still
+  answers the same question correctly. The camera counts at once. The mic
+  counts after eight seconds, so dictation doesn't send the kids away. A
+  report that stops checking in expires after 90 seconds, so a Mac that goes
+  to sleep mid-call doesn't leave the banner on all evening.
 - Wireless debugging survives until the next reboot. A Mac the tablet already
   trusts over USB can connect without pairing.

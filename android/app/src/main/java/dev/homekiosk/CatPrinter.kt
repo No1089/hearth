@@ -636,7 +636,7 @@ class CatPrinter private constructor(context: Context) {
     private fun testPage(): Bitmap {
         val w = CatPrinterProtocol.WIDTH
         val lines = listOf(
-            "Home Kiosk v${BuildConfig.VERSION_NAME}",
+            "Hearth v${BuildConfig.VERSION_NAME}",
             "${Build.MANUFACTURER} ${Build.MODEL}",
             "${cfg.printerName.ifEmpty { "?" }} ${cfg.printerAddress}",
             SimpleDateFormat("EEE d MMM HH:mm", Locale.getDefault()).format(Date()),

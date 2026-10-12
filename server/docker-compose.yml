@@ -1,7 +1,7 @@
 services:
-  home-dash:
+  hearth:
     image: python:3.13-slim
-    container_name: home-dash
+    container_name: hearth
     network_mode: host
     volumes:
       - ./app.py:/app/app.py:ro
