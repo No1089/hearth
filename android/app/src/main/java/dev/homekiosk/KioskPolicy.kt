@@ -12,6 +12,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.SystemClock
+import android.os.UserManager
 import android.provider.Settings
 import android.util.Log
 
@@ -22,11 +23,19 @@ object KioskPolicy {
     /** "Exit kiosk" pauses the lock until this time (elapsedRealtime); it re-locks by itself. */
     @Volatile private var lockSuspendedUntil = 0L
     const val LOCK_PAUSE_MS = 10 * 60_000L
+    private val RESTRICTIONS = listOf(UserManager.DISALLOW_SAFE_BOOT, UserManager.DISALLOW_ADD_USER)
 
     fun dpm(ctx: Context) = ctx.getSystemService(DevicePolicyManager::class.java)
 
     fun isDeviceOwner(ctx: Context): Boolean =
         dpm(ctx)?.isDeviceOwnerApp(ctx.packageName) == true
+
+    /**
+     * True when we are device owner but our policies aren't in place yet, e.g. `dpm set-device-owner`
+     * ran while the app was already in front (so no onCreate/onResume applied them).
+     */
+    fun policiesPending(ctx: Context): Boolean =
+        isDeviceOwner(ctx) && dpm(ctx)?.isLockTaskPermitted(ctx.packageName) != true
 
     /** Applies all device-owner policies. Safe to call repeatedly. */
     fun applyOwnerPolicies(activity: Activity): Boolean {
@@ -40,6 +49,11 @@ object KioskPolicy {
             dpm.setLockTaskFeatures(admin, DevicePolicyManager.LOCK_TASK_FEATURE_GLOBAL_ACTIONS)
         } catch (e: Exception) { Log.w(TAG, "lock task packages", e) }
         try { dpm.setKeyguardDisabled(admin, true) } catch (e: Exception) { Log.w(TAG, "keyguard", e) }
+        // Safe mode disables third-party apps (and so the lock task) — with the power menu reachable,
+        // "hold Power off → Safe mode" would otherwise be a way out of the kiosk. No extra users either.
+        for (r in RESTRICTIONS) {
+            try { dpm.addUserRestriction(admin, r) } catch (e: Exception) { Log.w(TAG, "restriction $r", e) }
+        }
         try {
             val all = BatteryManager.BATTERY_PLUGGED_AC or BatteryManager.BATTERY_PLUGGED_USB or
                 BatteryManager.BATTERY_PLUGGED_WIRELESS
@@ -110,6 +124,8 @@ object KioskPolicy {
         runCatching { dpm.clearPackagePersistentPreferredActivities(admin, activity.packageName) }
         runCatching { dpm.setKeyguardDisabled(admin, false) }
         runCatching { dpm.setLockTaskPackages(admin, emptyArray()) }
+        // clearDeviceOwnerApp drops owner-set restrictions too; clear them explicitly anyway.
+        for (r in RESTRICTIONS) runCatching { dpm.clearUserRestriction(admin, r) }
         return try {
             @Suppress("DEPRECATION")
             dpm.clearDeviceOwnerApp(activity.packageName)

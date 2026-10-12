@@ -7,12 +7,19 @@ A small home-made replacement for Fully Kiosk Browser, built for a Samsung Galax
 - Reconnect screen + retry with backoff (5 s → 60 s) on load errors / 5xx / renderer crashes; reloads
   the page once it is older than 24 h.
 - Kiosk lock when provisioned as **device owner**: lock task, no keyguard, stay-on-while-plugged,
-  persistent HOME activity, camera permission auto-granted. Without device owner it's a normal app
-  that can still be chosen as the launcher.
+  persistent HOME activity, safe mode and extra users disallowed, camera/Bluetooth permissions
+  auto-granted. Without device owner it's a normal app that can still be chosen as the launcher.
+- Top-level navigation is pinned to the start URL's host: links to other sites, `tel:`, `mailto:`,
+  `intent:` etc. are swallowed (logged); `/reload` always goes back to the start URL.
 - **Dims instead of sleeping** (the camera stops when the screen really turns off): window brightness
   → 0 plus a black overlay. Touch, motion, `/wake`, or `Kiosk.wake()` wakes it. Auto-dim after N
   minutes (default 10) without motion/touch; optional night window with a lower awake brightness.
-- Front-camera motion detection (CameraX `ImageAnalysis`, ~320×240, 2 fps, 32×24 block grid).
+  The power button is the one way to black the screen out completely; a remote wake (`/wake` from
+  a busy/occupancy automation, `Kiosk.wake()`) turns it back on, touch and motion can't (the camera
+  is off then).
+- Front-camera motion detection (CameraX `ImageAnalysis`, ~320×240, analysed at 2 fps, 32×24 block
+  grid). The sensor itself is asked for its slowest supported AE frame-rate range (logged at bind)
+  instead of streaming ~30 fps around the clock.
 - Page integration: `kiosk` DOM events and a `window.Kiosk` bridge.
 - Bluetooth LE printing to a GB03 "cat printer" (see below).
 - Token-protected local HTTP API (default port 2323) and optional Home Assistant webhook push.
@@ -49,10 +56,34 @@ minSdk 29. AndroidX deps are pinned to the last releases that still compile agai
 ```sh
 cd android
 ./gradlew assembleDebug     # -> app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleRelease   # -> app/build/outputs/apk/release/app-release.apk (needs keystore.properties, below)
 ./gradlew test              # JVM unit tests (motion detector, HTTP parsing, night window, cat-printer protocol)
 ```
 
 `local.properties` (gitignored) is optional when `ANDROID_HOME` is set.
+
+### Release signing
+
+A device-owner app can only ever be updated by the key it was installed with: lose the keystore
+and the only way to ship a new build is a factory reset (or `remove_owner`, below, then reinstall).
+So: create the keystore once, **back it up** (password manager + offline copy), and never commit it.
+
+```sh
+cd android
+keytool -genkeypair -v -keystore hearth-release.jks -alias hearth -keyalg RSA -keysize 4096 -validity 10000
+cat > keystore.properties <<'EOF'
+storeFile=hearth-release.jks
+storePassword=...
+keyAlias=hearth
+keyPassword=...
+EOF
+./gradlew assembleRelease
+```
+
+`keystore.properties` and `*.jks` are gitignored; `storeFile` is relative to `android/`. Without
+the properties file `assembleRelease` fails with a message saying so (it never produces an
+unsigned APK by accident). Release builds are not debuggable; debug builds use the default debug
+key and should only go on a tablet that was provisioned with a debug build.
 
 ## Provisioning the tablet
 
@@ -63,10 +94,11 @@ cd android
    `dpm set-device-owner` refuses to run if *any* account exists on the device.
 4. Enable developer options (Settings → About tablet → Software information → tap *Build number* 7×),
    then Developer options → **USB debugging** on. Connect USB, accept the RSA prompt.
-5. Install and provision:
+5. Install the **release** build (signed with your own key, see *Release signing*) and provision.
+   Whatever key the first install uses is the only key that can ever update the app afterwards.
 
 ```sh
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/release/app-release.apk
 adb shell dpm set-device-owner dev.homekiosk/.AdminReceiver
 
 # Headless config (all optional except url/token). --es values are strings; --ei/--ez also work.
@@ -77,14 +109,21 @@ adb shell am start -n dev.homekiosk/.MainActivity \
     --es pin 4826
 ```
 
-Other accepted extras: `port`, `brightness` (0–255), `night` (true/false), `night_start`/`night_end`
-(`HH:MM`), `night_brightness`, `sleep_minutes`, `motion` (true/false), `motion_debug` (true/false),
-`printer` (true/false). One-shot action (not saved): `--ez print_test true`.
+Other accepted extras: `port` (1024–65535), `brightness` (0–255), `night` (true/false),
+`night_start`/`night_end` (`HH:MM`), `night_brightness`, `sleep_minutes`, `motion` (true/false),
+`motion_debug` (true/false), `printer` (true/false). Values are validated — `url`/`webhook` must be
+http(s) URLs, `pin` 4–8 digits, numbers in range — and an invalid one is ignored (logged, not
+clamped). Extras are applied once and then dropped from the intent, so a recreated activity doesn't
+re-apply a stale URL. One-shot actions (not saved): `--ez print_test true`,
+`--ez remove_owner true --es pin <PIN>` (see *Undoing device owner*).
 
-The first `am start` (or a reboot) applies the device-owner policies and enters lock task. Check:
+The first `am start` (or a reboot) applies the device-owner policies and enters lock task; if
+`dpm set-device-owner` runs while the app is already in front, the next 15 s tick picks it up. Check:
 
 ```sh
 adb shell dumpsys device_policy | grep -A3 "Device Owner"
+adb shell dumpsys activity activities | grep mLockTaskModeState   # LOCKED
+adb shell pm get-user-restrictions                                 # no_safe_boot, no_add_user
 curl -s "http://192.0.2.10:2323/status?token=YOUR_TOKEN"
 ```
 
@@ -97,7 +136,8 @@ curl -s "http://192.0.2.10:2323/status?token=YOUR_TOKEN"
 - Some One UI builds create a Samsung account placeholder after the wizard; if `dpm` still fails with
   no visible accounts, check `adb shell dumpsys account` and factory-reset again.
 - Lock task allows the power-button menu (LOCK_TASK_FEATURE_GLOBAL_ACTIONS) so you can still reboot;
-  home, recents, notifications and the status bar are blocked.
+  home, recents, notifications and the status bar are blocked. Safe mode (which would start the
+  tablet without third-party apps, i.e. without the kiosk) is disallowed for the same reason.
 - Samsung's "Adaptive brightness" and screen timeout no longer matter: the app keeps the screen on
   (FLAG_KEEP_SCREEN_ON + STAY_ON_WHILE_PLUGGED_IN) and overrides window brightness itself.
 - If brightness 0 turns the backlight fully off or behaves oddly on this panel, raise
@@ -106,11 +146,25 @@ curl -s "http://192.0.2.10:2323/status?token=YOUR_TOKEN"
 ### Undoing device owner / uninstalling
 
 Settings (corner taps + PIN) → **Remove device owner…**. That stops lock task, re-enables the
-keyguard, clears the HOME override and calls `clearDeviceOwnerApp`. Then:
+keyguard, clears the HOME override and the user restrictions and calls `clearDeviceOwnerApp`. Then:
 
 ```sh
 adb uninstall dev.homekiosk
 ```
+
+The same thing over adb, for swapping the signing key (e.g. moving from the debug key to a release
+keystore — Android refuses to install an APK signed with a different key over a device-owner app):
+
+```sh
+adb shell am start -n dev.homekiosk/.MainActivity --ez remove_owner true --es pin 4826
+adb uninstall dev.homekiosk
+adb install app/build/outputs/apk/release/app-release.apk
+adb shell dpm set-device-owner dev.homekiosk/.AdminReceiver   # still needs: no accounts on the device
+```
+
+`remove_owner` is only honoured when the intent also carries the current PIN (here it checks the
+PIN rather than changing it); it is never saved. Preferences survive the uninstall only if you
+back them up yourself — expect to run the `am start … --es url …` provisioning line again.
 
 **Exit kiosk (stop lock task)** pauses the lock for 10 minutes (handy for reaching Android
 settings via the status bar / *Open Android settings*); it re-locks on its own once the pause is
@@ -127,7 +181,7 @@ configured every request gets `403`. Responses are JSON; actions return the new 
 | GET  | `/status` | `asleep, brightness, awakeBrightness, lastMotionMs, lastTouchMs, battery, charging, plugged, url, appVersion, deviceOwner, lockTask, motionEnabled, motionFraction, printer` (see Bluetooth printer) |
 | POST | `/wake` | reason `remote` |
 | POST | `/sleep` | reason `remote`; motion is ignored for 10 s afterwards |
-| POST | `/reload` | reloads the WebView |
+| POST | `/reload` | loads the start URL again (also brings back a page that navigated away) |
 | POST | `/brightness?value=0-255` | sets the (day) awake brightness |
 | POST | `/url?u=<url-encoded>` | sets and loads a new start URL |
 
@@ -143,7 +197,8 @@ curl -s -X POST -H "Authorization: Bearer $T" \
 ```
 
 The server is plain HTTP on the LAN, only runs while the app is alive, and is single-request per
-connection. Treat the token like a password; don't port-forward it.
+connection (10 s deadline per request). If the port is still held by a previous process at
+startup the bind is retried once a minute. Treat the token like a password; don't port-forward it.
 
 ## Page integration
 
@@ -157,7 +212,8 @@ window.addEventListener('kiosk', (e) => {
 });
 // Kiosk.wake(); Kiosk.sleep();   // both report reason 'remote'
 
-// Bluetooth printer (384 px wide receipt; any width is scaled, transparency prints as white)
+// Bluetooth printer (384 px wide receipt; any width is scaled, transparency prints as white;
+// max 4 megapixels / 8 MB data URL — larger images are refused with an error string, never a throw)
 const r = Kiosk.printImage(canvas.toDataURL('image/png'));   // "queued" or an error message
 const p = JSON.parse(Kiosk.printerStatus());                 // same as status().printer
 window.addEventListener('kiosk', (e) => {
@@ -178,7 +234,10 @@ implementation: `tools/catprint.py`).
   match's address (Settings → *Forget printer* clears it and scans again). Afterwards it
   `connectGatt(autoConnect = true)`s to the saved address, so the printer reconnects by itself
   when switched on. With no connection for 2 min the handle is closed and re-armed (backing off
-  to 15 min); it re-scans when the printer hasn't been seen in this process or for 6 h.
+  2 → 4 → 8 → 15 min, reset once the printer is ready); a connection that fails outright (GATT
+  status 133, service discovery timing out, `ae01` missing) goes into the same backoff instead of
+  reconnecting immediately. It re-scans when the printer hasn't been seen in this process or for 6 h.
+  A print job always tries a direct connect right away regardless of the backoff.
 - **Protocol**: write-without-response to `ae01`, notifications on `ae02`. Packet
   `51 78 <cmd> 00 <len> 00 <data> <crc8> ff` (CRC-8 poly 0x07). Job = GET_STATE, QUALITY 0x33,
   ENERGY 0xFFFF, APPLY_ENERGY, UPDATE, LATTICE_ON, one `A2` per row (48 bytes, LSB = leftmost,
@@ -188,7 +247,8 @@ implementation: `tools/catprint.py`).
 - **Keepalive**: while connected it writes GET_STATE every 20 s (the printer powers itself off
   when idle; this is an experiment to see if pinging prevents that). Replies are logged at debug.
 - **Printing**: jobs are queued and run one at a time. If the printer isn't connected a job waits
-  up to 10 s for a connection, then fails with "Printer is off — press its power button".
+  up to 20 s for a connection (longer while a scan is running), then fails with "Printer is off —
+  press its power button".
 - **State** (`/status` → `printer`, `Kiosk.printerStatus()`): `enabled, state` (`off` / `scanning` /
   `connecting` / `ready` / `printing`), `name, address, lastError, lastPrintAt` (epoch ms).
 - **Permissions**: `BLUETOOTH_SCAN` (`neverForLocation`) + `BLUETOOTH_CONNECT`, auto-granted as
@@ -258,7 +318,7 @@ automation:
 | Start URL | — | Settings opens automatically on first run when empty |
 | Awake brightness | 180 | 0–255 window brightness |
 | Asleep brightness | 0 | raise to 1–3 if 0 misbehaves |
-| Night window | off, 22:00–06:30, 30 | lower awake brightness inside the window (wraps midnight) |
+| Night window | off, 22:00–06:30, 30 | lower awake brightness inside the window (wraps midnight; start = end means never, not all day) |
 | Dim after | 10 min | 0 = never |
 | Motion detection | on | front camera; ≥ 3 % of 32×24 blocks changing by > 16 luma |
 | Motion debug | off | bottom-left overlay with live changed-% and a flashing dot |

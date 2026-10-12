@@ -4,6 +4,7 @@ import android.os.SystemClock
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 /** Fire-and-forget POSTs to an optional Home Assistant webhook. Failures are ignored. */
 class HaNotifier(private val webhookUrl: () -> String) {
@@ -25,22 +26,26 @@ class HaNotifier(private val webhookUrl: () -> String) {
     private fun post(event: String) {
         val target = webhookUrl().trim()
         if (target.isEmpty() || !(target.startsWith("http://") || target.startsWith("https://"))) return
-        executor.execute {
-            var conn: HttpURLConnection? = null
-            try {
-                conn = (URL(target).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    connectTimeout = 5000
-                    readTimeout = 5000
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/json")
+        try {
+            executor.execute {
+                var conn: HttpURLConnection? = null
+                try {
+                    conn = (URL(target).openConnection() as HttpURLConnection).apply {
+                        requestMethod = "POST"
+                        connectTimeout = 5000
+                        readTimeout = 5000
+                        doOutput = true
+                        setRequestProperty("Content-Type", "application/json")
+                    }
+                    conn.outputStream.use { it.write("""{"event":"$event"}""".toByteArray()) }
+                    conn.responseCode // forces the request; body ignored
+                } catch (_: Exception) {
+                } finally {
+                    conn?.disconnect()
                 }
-                conn.outputStream.use { it.write("""{"event":"$event"}""".toByteArray()) }
-                conn.responseCode // forces the request; body ignored
-            } catch (_: Exception) {
-            } finally {
-                conn?.disconnect()
             }
+        } catch (_: RejectedExecutionException) {
+            // shutdown() already ran (activity destroyed while a late wake/sleep was dispatched).
         }
     }
 

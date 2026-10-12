@@ -12,6 +12,8 @@ import java.net.URLDecoder
 import java.security.MessageDigest
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 
 /** Minimal parsed HTTP/1.x request. Pure Kotlin so it can be unit-tested. */
 data class HttpRequest(
@@ -129,10 +131,13 @@ class KioskHttpServer(
     private var socket: ServerSocket? = null
     private var acceptThread: Thread? = null
     private var pool: ExecutorService? = null
+    private var reaper: ScheduledExecutorService? = null
 
+    /** Set when the last [start] failed to bind; cleared when a later [start] succeeds. */
     @Volatile var lastError: String? = null
         private set
 
+    /** Binds and starts serving. A failed bind records [lastError]; calling again retries. */
     fun start() {
         if (socket != null) return
         val ss = try {
@@ -144,9 +149,11 @@ class KioskHttpServer(
             lastError = "bind :$port failed: ${e.message}"
             return
         }
+        lastError = null
         socket = ss
         val workers = Executors.newFixedThreadPool(2)
         pool = workers
+        reaper = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "kiosk-http-deadline").apply { isDaemon = true } }
         acceptThread = Thread({
             while (!ss.isClosed) {
                 val client = try { ss.accept() } catch (_: SocketException) { break } catch (_: Exception) { continue }
@@ -164,10 +171,17 @@ class KioskHttpServer(
         socket = null
         pool?.shutdownNow()
         pool = null
+        reaper?.shutdownNow()
+        reaper = null
         acceptThread = null
     }
 
     private fun serve(client: Socket) {
+        // Per-request deadline: soTimeout only bounds each read, not a slow client + handler
+        // combined, and there are only two workers. Closing the socket unblocks whatever is stuck.
+        val deadline = try {
+            reaper?.schedule({ runCatching { client.close() } }, REQUEST_DEADLINE_MS, TimeUnit.MILLISECONDS)
+        } catch (_: Exception) { null }
         client.use { s ->
             try {
                 s.soTimeout = 5000
@@ -180,5 +194,10 @@ class KioskHttpServer(
             } catch (_: Exception) {
             }
         }
+        deadline?.cancel(false)
+    }
+
+    companion object {
+        private const val REQUEST_DEADLINE_MS = 10_000L
     }
 }

@@ -9,3 +9,6 @@ local.properties
 captures/
 *.apk
 *.aab
+# release signing (back the keystore up somewhere safe — see README)
+keystore.properties
+*.jks

@@ -2,6 +2,8 @@ package dev.homekiosk
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
+import java.net.URI
 import java.security.SecureRandom
 import java.util.Calendar
 
@@ -70,22 +72,27 @@ class Config(context: Context) {
 
     /**
      * Applies config extras from an intent (adb `am start ... --es url ... --es token ...`).
+     * Invalid values are ignored (and logged, without the value) rather than clamped or saved.
      * Returns the list of keys that were changed.
      */
     fun applyExtras(extras: android.os.Bundle?): List<String> {
         if (extras == null) return emptyList()
         val changed = mutableListOf<String>()
         val e = prefs.edit()
-        fun str(extra: String, key: String) {
-            extras.getString(extra)?.let { e.putString(key, it.trim()); changed += extra }
+        fun reject(extra: String, why: String) { Log.w(TAG, "ignoring extra '$extra': $why") }
+        fun str(extra: String, key: String, why: String = "", valid: (String) -> Boolean = { true }) {
+            val v = extras.getString(extra)?.trim() ?: return
+            if (!valid(v)) { reject(extra, why); return }
+            e.putString(key, v); changed += extra
         }
         // Values may come as --es (string) or --ei / --ez (typed) extras.
         fun int(extra: String, key: String, range: IntRange) {
             if (!extras.containsKey(extra)) return
             val v = extras.getString(extra)?.trim()?.toIntOrNull()
                 ?: extras.getInt(extra, Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
-                ?: return
-            e.putInt(key, v.coerceIn(range.first, range.last)); changed += extra
+                ?: return reject(extra, "not a number")
+            if (v !in range) return reject(extra, "must be ${range.first}–${range.last}")
+            e.putInt(key, v); changed += extra
         }
         fun bool(extra: String, key: String) {
             if (!extras.containsKey(extra)) return
@@ -93,12 +100,14 @@ class Config(context: Context) {
             val b = if (s != null) s.equals("true", true) || s == "1" else extras.getBoolean(extra)
             e.putBoolean(key, b); changed += extra
         }
-        str("url", K_URL)
+        str("url", K_URL, "not an http(s) URL", ::isHttpUrl)
         str("token", K_HTTP_TOKEN)
-        str("webhook", K_HA_WEBHOOK)
-        str("pin", K_PIN)
-        str("night_start", K_NIGHT_START)
-        str("night_end", K_NIGHT_END)
+        str("webhook", K_HA_WEBHOOK, "not an http(s) URL", ::isHttpUrl)
+        // With `--ez remove_owner true` the pin extra authorises that action (MainActivity checks it
+        // against the saved PIN) instead of changing the PIN.
+        if (!extras.containsKey(EXTRA_REMOVE_OWNER)) str("pin", K_PIN, "must be 4–8 digits", ::isPin)
+        str("night_start", K_NIGHT_START, "must be HH:MM") { parseHm(it) != null }
+        str("night_end", K_NIGHT_END, "must be HH:MM") { parseHm(it) != null }
         int("port", K_HTTP_PORT, 1024..65535)
         int("brightness", K_AWAKE_BRIGHTNESS, 0..255)
         int("night_brightness", K_NIGHT_BRIGHTNESS, 0..255)
@@ -112,6 +121,10 @@ class Config(context: Context) {
     }
 
     companion object {
+        private const val TAG = "HomeKiosk"
+        /** One-shot intent extra handled by MainActivity; never persisted. */
+        const val EXTRA_REMOVE_OWNER = "remove_owner"
+
         const val K_URL = "url"
         const val K_AWAKE_BRIGHTNESS = "awake_brightness"
         const val K_SLEEP_BRIGHTNESS = "sleep_brightness"
@@ -148,11 +161,23 @@ class Config(context: Context) {
             SecureRandom().nextBytes(bytes)
             return bytes.joinToString("") { "%02x".format(it) }
         }
+
+        /** Absolute URL with scheme http or https and a non-empty authority (host[:port]). */
+        fun isHttpUrl(s: String): Boolean = try {
+            val u = URI(s)
+            (u.scheme.equals("http", true) || u.scheme.equals("https", true)) && !u.rawAuthority.isNullOrEmpty()
+        } catch (_: Exception) { false }
+
+        /** 4–8 digits (what the PIN dialog's numeric keypad can enter). */
+        fun isPin(s: String): Boolean = s.length in 4..8 && s.all { it in '0'..'9' }
     }
 }
 
 object TimeWindow {
-    /** True if minute-of-day [m] is inside [start, end), wrapping past midnight when end <= start. */
+    /**
+     * True if minute-of-day [m] is inside [start, end), wrapping past midnight when end < start.
+     * start == end is an empty window (never inside), not "all day".
+     */
     fun contains(start: Int, end: Int, m: Int): Boolean =
         if (start == end) false
         else if (start < end) m in start until end

@@ -50,6 +50,23 @@ class HttpRequestTest {
         assertFalse(TimeWindow.contains(s, e, 6 * 60 + 30))
         assertFalse(TimeWindow.contains(s, e, 12 * 60))
         assertTrue(TimeWindow.contains(60, 120, 90))
+        assertFalse(TimeWindow.contains(60, 60, 60)) // start == end: never, not all day
         assertNull(Config.parseHm("25:00"))
+    }
+
+    @Test fun intentExtraValidation() {
+        assertTrue(Config.isHttpUrl("http://192.0.2.10:8080/"))
+        assertTrue(Config.isHttpUrl("https://dash.example.com/?view=kitchen"))
+        assertTrue(Config.isHttpUrl("HTTP://hearth.local"))
+        assertFalse(Config.isHttpUrl("ftp://x/"))
+        assertFalse(Config.isHttpUrl("javascript:alert(1)"))
+        assertFalse(Config.isHttpUrl("dash.example.com"))
+        assertFalse(Config.isHttpUrl("http://"))
+        assertFalse(Config.isHttpUrl("http://bad host/"))
+        assertTrue(Config.isPin("4826"))
+        assertTrue(Config.isPin("12345678"))
+        assertFalse(Config.isPin("123"))
+        assertFalse(Config.isPin("123456789"))
+        assertFalse(Config.isPin("12a4"))
     }
 }

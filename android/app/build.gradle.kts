@@ -1,6 +1,16 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
 }
+
+// Release signing: android/keystore.properties (gitignored) with storeFile (relative to android/),
+// storePassword, keyAlias, keyPassword. A device-owner app can only ever be updated by the key it
+// was installed with, so that keystore must be backed up — see README "Release signing".
+val keystoreProps: Properties? = rootProject.file("keystore.properties").takeIf { it.isFile }?.let { f ->
+    Properties().apply { f.inputStream().use { load(it) } }
+}
+val hasKeystore = keystoreProps != null
 
 android {
     namespace = "dev.homekiosk"
@@ -14,9 +24,22 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        if (keystoreProps != null) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            isDebuggable = false
+            if (hasKeystore) signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -27,6 +50,16 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+// Without the keystore a release build would silently produce an unsigned APK that can't be
+// installed over the provisioned app; fail early with the fix instead.
+tasks.matching { it.name == "packageRelease" }.configureEach {
+    doFirst {
+        if (!hasKeystore) throw GradleException(
+            "Release signing needs android/keystore.properties (storeFile, storePassword, keyAlias, " +
+                "keyPassword) — see android/README.md, \"Release signing\". Use assembleDebug for a debug build.")
     }
 }
 

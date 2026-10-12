@@ -10,14 +10,19 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CaptureRequest
+import android.net.Uri
 import android.os.BatteryManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.text.InputType
 import android.util.Base64
 import android.util.Log
+import android.util.Range
 import android.util.Size
 import android.view.Gravity
 import android.view.MotionEvent
@@ -42,6 +47,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.resolutionselector.ResolutionSelector
@@ -83,15 +91,17 @@ class MainActivity : ComponentActivity() {
     private var pageLoadedElapsed = 0L
     private var pageFailed = false
     private var retryDelayMs = RETRY_MIN_MS
+    private var rendererRetryMs = RENDERER_RETRY_MIN_MS
     private var resumed = false
-
-    // --- HTTP ---
 
     // --- camera ---
     private val detector = MotionDetector()
     private var analysisExecutor: ExecutorService? = null
     private var cameraProvider: ProcessCameraProvider? = null
+    private var analysis: ImageAnalysis? = null
+    /** A bind is in flight or done; whether the use case is still bound is asked of the provider. */
     private var cameraBound = false
+    private var noCamera = false
     private var motionThresholdPct = 3f
 
     // --- hidden settings gesture ---
@@ -144,12 +154,21 @@ class MainActivity : ComponentActivity() {
         buildViews()
         setContentView(root)
 
-        cfg.applyExtras(intent?.extras).let { if (it.isNotEmpty()) toast("Config updated: ${it.joinToString()}") }
+        // Extras only on a fresh start: a recreated activity (or one relaunched from recents) gets
+        // the same intent again, and a stale `--es url` would undo later changes.
+        val fresh = savedInstanceState == null
+        if (fresh) cfg.applyExtras(intent?.extras).let {
+            if (it.isNotEmpty()) { Log.i(TAG, "config from intent: $it"); toast("Config updated: ${it.joinToString()}") }
+        }
         KioskPolicy.applyOwnerPolicies(this)
         restartServerIfNeeded()
         // Process-wide listener; doesn't capture this activity (it may be recreated).
         CatPrinter.get(this).listener = { ok, msg -> mainHandler.post { active?.get()?.dispatchPrinter(ok, msg) } }
-        if (savedInstanceState == null) handlePrintTest(intent)
+        if (fresh) {
+            handlePrintTest(intent)
+            handleRemoveOwner(intent)
+            intent?.replaceExtras(Bundle()) // consumed; also keeps the PIN out of the saved intent
+        }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -171,6 +190,8 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         applyIntentExtras(intent)
         handlePrintTest(intent)
+        handleRemoveOwner(intent)
+        intent.replaceExtras(Bundle())
     }
 
     override fun onResume() {
@@ -198,7 +219,7 @@ class MainActivity : ComponentActivity() {
         main.removeCallbacksAndMessages(null)
         if (active?.get() === this) active = null
         ha.shutdown()
-        cameraProvider?.unbindAll()
+        unbindCamera() // only our own use case: another instance may still be using the camera
         analysisExecutor?.shutdown()
         pinDialog?.dismiss()
         webView?.let { root.removeView(it); it.destroy() }
@@ -231,11 +252,35 @@ class MainActivity : ComponentActivity() {
 
     /** `--ez print_test true`: a one-shot action, never persisted as config. */
     private fun handlePrintTest(intent: Intent?) {
-        if (intent?.getBooleanExtra(EXTRA_PRINT_TEST, false) != true) return
-        intent.removeExtra(EXTRA_PRINT_TEST) // don't print again if the activity is recreated
+        if (!flag(intent, EXTRA_PRINT_TEST)) return
         val err = CatPrinter.get(this).printTestPage()
         Log.i(TAG, "print_test: ${err ?: "queued"}")
         toast(err?.let { "Printer: $it" } ?: "Printing test page…")
+    }
+
+    /**
+     * `--ez remove_owner true --es pin <PIN>`: same as the Settings button, for swapping the signing
+     * key (a device-owner app can only be updated by the key it was installed with). The pin extra
+     * must match the saved PIN; Config.applyExtras leaves it alone when remove_owner is present.
+     */
+    private fun handleRemoveOwner(intent: Intent?) {
+        if (!flag(intent, Config.EXTRA_REMOVE_OWNER)) return
+        if (intent?.getStringExtra("pin")?.trim() != cfg.pin) {
+            Log.w(TAG, "remove_owner ignored: pin missing or wrong")
+            toast("remove_owner: PIN missing or wrong")
+            return
+        }
+        val ok = KioskPolicy.removeDeviceOwner(this)
+        Log.i(TAG, "remove_owner: ${if (ok) "done" else "not device owner"}")
+        toast(if (ok) "Device owner removed — app can now be uninstalled" else "Not device owner")
+    }
+
+    /** Boolean extra given as `--ez key true`, or as `--es key true|1`. */
+    private fun flag(intent: Intent?, key: String): Boolean {
+        val e = intent?.extras ?: return false
+        if (!e.containsKey(key)) return false
+        val s = e.getString(key)
+        return if (s != null) s.equals("true", true) || s == "1" else e.getBoolean(key)
     }
 
     private fun applyIntentExtras(intent: Intent?) {
@@ -323,9 +368,25 @@ class MainActivity : ComponentActivity() {
                 if (!pageFailed && url != null && url != "about:blank") {
                     pageLoadedElapsed = SystemClock.elapsedRealtime()
                     retryDelayMs = RETRY_MIN_MS
+                    rendererRetryMs = RENDERER_RETRY_MIN_MS
                     main.removeCallbacks(retry)
                     hideMessage()
                 }
+            }
+
+            /**
+             * Top-level navigations stay on the dashboard's host: a stray link (or `tel:`, `mailto:`,
+             * `intent:` …) must not leave a kiosk stranded on some other site. Only user/JS-initiated
+             * navigations arrive here, never loadUrl() or subresources; iframes are left alone.
+             */
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                if (!request.isForMainFrame) return false
+                val target = request.url
+                val home = Uri.parse(cfg.url).host
+                val allowed = (target.scheme == "http" || target.scheme == "https") &&
+                    home != null && target.host.equals(home, ignoreCase = true)
+                if (!allowed) Log.i(TAG, "blocked navigation to $target")
+                return !allowed
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -337,7 +398,7 @@ class MainActivity : ComponentActivity() {
             }
 
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                Log.w(TAG, "renderer gone (crash=${detail.didCrash()}), recreating WebView")
+                Log.w(TAG, "renderer gone (crash=${detail.didCrash()}), recreating WebView, reload in ${rendererRetryMs / 1000}s")
                 if (view === webView) {
                     root.removeView(view)
                     webView = null
@@ -345,7 +406,10 @@ class MainActivity : ComponentActivity() {
                     showMessage("Reconnecting… (renderer restarted)")
                     createWebView()
                     if (resumed) webView?.onResume()
-                    main.postDelayed({ loadStartUrl() }, 1000)
+                    // Backs off 1 s → 60 s so a page that crashes the renderer on load doesn't
+                    // spin; reset once a page finishes loading.
+                    main.postDelayed({ loadStartUrl() }, rendererRetryMs)
+                    rendererRetryMs = (rendererRetryMs * 2).coerceAtMost(RENDERER_RETRY_MAX_MS)
                 }
                 return true
             }
@@ -395,8 +459,9 @@ class MainActivity : ComponentActivity() {
 
     private val retry = Runnable { loadStartUrl() }
 
+    /** Always the start URL (not reload()): brings back a page that navigated somewhere else. */
     private fun reloadPage() {
-        if (currentUrl.isEmpty()) loadStartUrl() else webView?.reload()
+        loadStartUrl()
         pageLoadedElapsed = SystemClock.elapsedRealtime() // avoid double reloads while it loads
     }
 
@@ -406,7 +471,16 @@ class MainActivity : ComponentActivity() {
         override fun run() {
             val now = SystemClock.elapsedRealtime()
             applyBrightness() // picks up night-window transitions
-            if (resumed) KioskPolicy.maybeStartLockTask(this@MainActivity) // ends an "Exit kiosk" pause
+            if (resumed) {
+                // `dpm set-device-owner` run while we were already in front: no onResume applied
+                // the policies, so the lock task would wait for the next relaunch.
+                if (KioskPolicy.policiesPending(this@MainActivity)) {
+                    Log.i(TAG, "device owner without lock-task permission; applying policies")
+                    KioskPolicy.applyOwnerPolicies(this@MainActivity)
+                }
+                KioskPolicy.maybeStartLockTask(this@MainActivity) // also ends an "Exit kiosk" pause
+            }
+            retryServerIfDown(now)
             val timeoutMs = cfg.sleepTimeoutMin * 60_000L
             if (!asleep && timeoutMs > 0 && now - lastActivityElapsed >= timeoutMs) goToSleep("timer")
             if (pageLoadedElapsed > 0 && now - pageLoadedElapsed > MAX_PAGE_AGE_MS && !pageFailed) {
@@ -439,6 +513,9 @@ class MainActivity : ComponentActivity() {
 
     private fun wakeUp(reason: String) {
         markActivity()
+        // Dimming never turns the panel off, but the power button does; a remote wake (/wake, HA
+        // busy/occupancy, Kiosk.wake()) should bring that back too, so do it before the asleep check.
+        if (reason == "remote") turnScreenOn()
         if (!asleep) return
         asleep = false
         sleepOverlay.visibility = View.GONE
@@ -446,6 +523,18 @@ class MainActivity : ComponentActivity() {
         hideSystemBars()
         dispatchState(reason)
         ha.state(false)
+    }
+
+    /** Briefly holds a wake lock that turns the display on (the keyguard is disabled as device owner). */
+    @Suppress("DEPRECATION") // SCREEN_BRIGHT_WAKE_LOCK: the only non-window way to turn the screen on
+    private fun turnScreenOn() {
+        try {
+            val pm = getSystemService(PowerManager::class.java) ?: return
+            if (pm.isInteractive) return
+            Log.i(TAG, "display is off; waking it")
+            pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "$TAG:remoteWake")
+                .acquire(SCREEN_ON_LOCK_MS)
+        } catch (e: Exception) { Log.w(TAG, "wake lock", e) }
     }
 
     private fun applyBrightness() {
@@ -524,7 +613,15 @@ class MainActivity : ComponentActivity() {
     // ------------------------------------------------------------------ camera / motion
 
     private fun ensureCamera() {
-        if (cameraBound) return
+        if (noCamera) return
+        if (cameraBound) {
+            val a = analysis
+            // a == null: the provider future hasn't completed yet. Otherwise trust the provider, not
+            // our flag: another MainActivity instance's unbindAll() may have taken the use case away.
+            if (a == null || cameraProvider?.isBound(a) == true) return
+            Log.i(TAG, "camera use case no longer bound, rebinding")
+            cameraBound = false
+        }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             bindCamera()
         } else if (cfg.url.isNotEmpty() && !askingPermission && !cfg.prefs.getBoolean(Config.K_CAMERA_ASKED, false)) {
@@ -536,7 +633,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun bindCamera() {
-        if (cameraBound || !cfg.motionEnabled) return
+        if (cameraBound || noCamera || !cfg.motionEnabled) return
         cameraBound = true
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
@@ -545,30 +642,70 @@ class MainActivity : ComponentActivity() {
                 cameraProvider = provider
                 if (isDestroyed || !cameraBound) return@addListener
                 if (!provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) {
-                    Log.w(TAG, "no front camera"); return@addListener
+                    Log.w(TAG, "no front camera")
+                    noCamera = true
+                    cameraBound = false
+                    return@addListener
                 }
                 val exec = analysisExecutor ?: Executors.newSingleThreadExecutor().also { analysisExecutor = it }
-                val analysis = ImageAnalysis.Builder()
-                    .setResolutionSelector(ResolutionSelector.Builder()
-                        .setResolutionStrategy(ResolutionStrategy(Size(320, 240),
-                            ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
-                        .build())
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-                    .build()
                 detector.reset()
-                analysis.setAnalyzer(exec, MotionAnalyzer(detector, 2.0) { f ->
-                    main.post { onMotionFrame(f) }
-                })
-                provider.unbindAll()
-                // Bound to this activity's lifecycle: runs while STARTED (incl. dimmed), stops when
-                // Settings covers us or the activity is destroyed.
-                provider.bindToLifecycle(this, CameraSelector.DEFAULT_FRONT_CAMERA, analysis)
+                val fps = lowestFpsRange(provider)
+                try {
+                    bindAnalysis(provider, exec, fps)
+                } catch (e: Exception) {
+                    if (fps == null) throw e
+                    Log.w(TAG, "bind with fps range $fps failed, binding without it", e)
+                    bindAnalysis(provider, exec, null)
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "camera bind failed", e)
                 cameraBound = false
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    /** Builds the analysis use case (optionally pinned to [fps]) and binds it to this activity. */
+    @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
+    private fun bindAnalysis(provider: ProcessCameraProvider, exec: ExecutorService, fps: Range<Int>?) {
+        val builder = ImageAnalysis.Builder()
+            .setResolutionSelector(ResolutionSelector.Builder()
+                .setResolutionStrategy(ResolutionStrategy(Size(320, 240),
+                    ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
+                .build())
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+        // The analyzer only looks at 2 fps; without this the sensor streams at its default (~30 fps)
+        // around the clock for nothing.
+        if (fps != null) Camera2Interop.Extender(builder).setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fps)
+        val a = builder.build()
+        a.setAnalyzer(exec, MotionAnalyzer(detector, 2.0) { f ->
+            main.post { onMotionFrame(f) }
+        })
+        provider.unbindAll()
+        // Bound to this activity's lifecycle: runs while STARTED (incl. dimmed), stops when
+        // Settings covers us or the activity is destroyed.
+        provider.bindToLifecycle(this, CameraSelector.DEFAULT_FRONT_CAMERA, a)
+        analysis = a
+        Log.i(TAG, "camera bound, fps range ${fps ?: "default"}")
+    }
+
+    /**
+     * The supported AE target range with the lowest ceiling; among equals one whose floor is ≤ 10
+     * so the sensor may also slow down in a dark kitchen. Null (sensor default) if anything fails.
+     */
+    @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
+    private fun lowestFpsRange(provider: ProcessCameraProvider): Range<Int>? {
+        return try {
+            val info = CameraSelector.DEFAULT_FRONT_CAMERA.filter(provider.availableCameraInfos).firstOrNull() ?: return null
+            val ranges = Camera2CameraInfo.from(info)
+                .getCameraCharacteristic(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+                ?.toList() ?: return null
+            Log.i(TAG, "camera fps ranges: ${ranges.joinToString()}")
+            ranges.minWithOrNull(compareBy<Range<Int>> { it.upper }.thenBy { if (it.lower <= 10) 0 else 1 }.thenBy { it.lower })
+        } catch (e: Exception) {
+            Log.w(TAG, "fps ranges", e)
+            null
+        }
     }
 
     // ------------------------------------------------------------------ Bluetooth printer
@@ -598,7 +735,8 @@ class MainActivity : ComponentActivity() {
     private fun unbindCamera() {
         if (!cameraBound) return
         cameraBound = false
-        cameraProvider?.unbindAll()
+        analysis?.let { a -> runCatching { cameraProvider?.unbind(a) } }
+        analysis = null
     }
 
     private fun onMotionFrame(fraction: Float) {
@@ -648,6 +786,15 @@ class MainActivity : ComponentActivity() {
             it.start()
             it.lastError?.let { e -> Log.w(TAG, e); toast("HTTP: $e") }
         }
+    }
+
+    /** A port still held by a previous process at startup: retry the bind at most once a minute. */
+    private fun retryServerIfDown(now: Long) {
+        val s = server ?: return
+        if (s.lastError == null || now - lastServerRetry < SERVER_RETRY_MS) return
+        lastServerRetry = now
+        s.start()
+        Log.i(TAG, "HTTP retry: ${s.lastError ?: "listening on :$serverPort"}")
     }
 
     /** Runs on an HTTP worker thread. */
@@ -725,16 +872,33 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun status(): String = statusJson().toString()
         @JavascriptInterface fun printerStatus(): String = CatPrinter.get(this@MainActivity).statusJson().toString()
 
-        /** Accepts `data:image/png;base64,…`; returns "queued" or an error message right away. */
-        @JavascriptInterface fun printImage(dataUrl: String?): String {
+        /**
+         * Accepts `data:image/png;base64,…`; returns "queued" or an error message right away. Never
+         * throws: an exception here (an OutOfMemoryError from a huge canvas included) would take the
+         * whole kiosk process down, so sizes are checked before decoding and Throwable is caught.
+         */
+        @JavascriptInterface fun printImage(dataUrl: String?): String = try {
+            decodeAndPrint(dataUrl)
+        } catch (t: Throwable) {
+            Log.w(TAG, "printImage failed", t)
+            "Couldn't decode image (${t.javaClass.simpleName})"
+        }
+
+        private fun decodeAndPrint(dataUrl: String?): String {
             val s = dataUrl ?: return "No image"
+            if (s.length > MAX_DATA_URL_CHARS) return "Image too large (data URL over ${MAX_DATA_URL_CHARS shr 20} MB)"
             val comma = s.indexOf(',')
             if (!s.startsWith("data:image/") || comma < 0 || !s.substring(0, comma).endsWith(";base64"))
                 return "Expected a data:image/…;base64 URL"
-            val bmp = try {
-                val bytes = Base64.decode(s.substring(comma + 1), Base64.DEFAULT)
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            } catch (e: Exception) { null } ?: return "Couldn't decode image"
+            val bytes = try { Base64.decode(s.substring(comma + 1), Base64.DEFAULT) } catch (e: IllegalArgumentException) {
+                return "Couldn't decode image (bad base64)"
+            }
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return "Couldn't decode image"
+            if (bounds.outWidth.toLong() * bounds.outHeight > CatPrinter.MAX_INPUT_PIXELS)
+                return "Image too large (${bounds.outWidth}×${bounds.outHeight}, max ${CatPrinter.MAX_INPUT_PIXELS / 1_000_000} megapixels)"
+            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return "Couldn't decode image"
             return CatPrinter.get(this@MainActivity).print(bmp) ?: "queued"
         }
     }
@@ -744,6 +908,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private var server: KioskHttpServer? = null
         private var serverPort = -1
+        private var lastServerRetry = 0L
         @Volatile private var active: java.lang.ref.WeakReference<MainActivity>? = null
         private val mainHandler = Handler(Looper.getMainLooper())
         private const val EXTRA_PRINT_TEST = "print_test"
@@ -751,6 +916,11 @@ class MainActivity : ComponentActivity() {
         private const val TICK_MS = 15_000L
         private const val RETRY_MIN_MS = 5_000L
         private const val RETRY_MAX_MS = 60_000L
+        private const val RENDERER_RETRY_MIN_MS = 1_000L
+        private const val RENDERER_RETRY_MAX_MS = 60_000L
+        private const val SERVER_RETRY_MS = 60_000L
+        private const val SCREEN_ON_LOCK_MS = 3_000L
+        private const val MAX_DATA_URL_CHARS = 8 shl 20 // 8 MB of base64 ≈ 6 MB of PNG
         private const val MAX_PAGE_AGE_MS = 24 * 60 * 60 * 1000L
         private const val MOTION_DEBOUNCE_MS = 2_000L
         private const val SLEEP_GRACE_MS = 10_000L

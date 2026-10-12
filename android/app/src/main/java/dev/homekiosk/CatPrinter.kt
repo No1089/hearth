@@ -77,6 +77,8 @@ class CatPrinter private constructor(context: Context) {
     private var lastSeen = 0L
     private var lastScanAt = 0L
     private var retryMs = RETRY_MIN_MS
+    /** Earliest time (elapsedRealtime) for the next background connect attempt; see [backOff]. */
+    private var nextConnectAt = 0L
     private var scanRetryMs = SCAN_RETRY_MIN_MS
     private var nextScanAt = 0L
     private var receiverRegistered = false
@@ -98,7 +100,9 @@ class CatPrinter private constructor(context: Context) {
 
     fun setEnabled(on: Boolean) {
         cfg.printerEnabled = on
-        h.post { if (on) startInternal() else stopInternal("off") }
+        h.post {
+            if (on) { resetBackoff(); startInternal() } else stopInternal("off")
+        }
     }
 
     /** Clears the saved printer and scans for a new one. */
@@ -111,19 +115,23 @@ class CatPrinter private constructor(context: Context) {
         lastError = null
         nextScanAt = 0L
         scanRetryMs = SCAN_RETRY_MIN_MS
+        resetBackoff()
         if (started) startScan()
     }
 
-    /** Queues [bitmap] for printing. Returns null when queued, otherwise an error message. */
+    /**
+     * Queues [bitmap] for printing. Returns null when queued, otherwise an error message — never
+     * throws, not even for an OutOfMemoryError from a huge image (the JS bridge relies on that).
+     */
     fun print(bitmap: Bitmap): String? {
         if (!cfg.printerEnabled) return "Printer is disabled in kiosk settings"
         if (!hasPermissions(app)) return "No Bluetooth permission"
         if (adapter?.isEnabled != true) return "Bluetooth is off"
         val data = try {
             CatPrinterProtocol.job(rowsFor(bitmap))
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.w(TAG, "image conversion failed", e)
-            return "Bad image: ${e.message}"
+            return "Bad image: ${e.message ?: e.javaClass.simpleName}"
         }
         start()
         jobs.execute { runJob(data) }
@@ -153,7 +161,9 @@ class CatPrinter private constructor(context: Context) {
         }
         if (!readyToUseBt()) return
         if (gatt != null || scanCb != null) return
-        if (cfg.printerAddress.isEmpty()) startScan() else openGatt(auto = true)
+        if (cfg.printerAddress.isEmpty()) startScan()
+        else if (SystemClock.elapsedRealtime() >= nextConnectAt) openGatt(auto = true)
+        // else: backing off after a failed connection; the watchdog reopens when it's time.
     }
 
     private fun stopInternal(newState: String) {
@@ -194,7 +204,7 @@ class CatPrinter private constructor(context: Context) {
                     Log.i(TAG, "adapter state $s")
                     h.post {
                         if (!started) return@post
-                        if (s == BluetoothAdapter.STATE_ON) startInternal()
+                        if (s == BluetoothAdapter.STATE_ON) { resetBackoff(); startInternal() }
                         else if (s == BluetoothAdapter.STATE_OFF) readyToUseBt()
                     }
                 }
@@ -206,6 +216,7 @@ class CatPrinter private constructor(context: Context) {
     /**
      * Every 30 s: if we've been without a connection for a while, close and retry (backing off
      * 2 → 4 → 8 → 15 min), and re-scan when the saved printer hasn't been seen for a long time.
+     * Also the only place a handle dropped by [backOff] gets reopened, once its wait is over.
      */
     private val watchdog = object : Runnable {
         override fun run() {
@@ -217,7 +228,7 @@ class CatPrinter private constructor(context: Context) {
                 if (now >= nextScanAt) startScan()
                 return
             }
-            if (gatt == null) { openGatt(auto = true); return }
+            if (gatt == null) { if (now >= nextConnectAt) openGatt(auto = true); return }
             if (now - disconnectedSince < retryMs) return
             Log.i(TAG, "no connection for ${(now - disconnectedSince) / 1000}s, retrying (next in ${retryMs * 2 / 60_000} min)")
             retryMs = (retryMs * 2).coerceAtMost(RETRY_MAX_MS)
@@ -356,15 +367,35 @@ class CatPrinter private constructor(context: Context) {
     }
 
     private val setupTimeout = Runnable {
-        Log.w(TAG, "GATT setup timed out, reconnecting")
         lastError = "Printer connection setup timed out"
-        reopenAfterDrop()
+        backOff("GATT setup timed out")
     }
 
+    /** A direct connection dropped: re-arm a background autoConnect right away (not a retry loop). */
     private fun reopenAfterDrop() {
         closeGatt()
         disconnectedSince = SystemClock.elapsedRealtime()
         if (started) openGatt(auto = true)
+    }
+
+    /**
+     * A connection attempt failed in a way that would repeat immediately (status 133, setup
+     * timeout, services missing): drop the handle and let the watchdog reopen it after the current
+     * backoff (2 → 4 → 8 → 15 min; reset once the printer is ready). An on-demand print still
+     * connects straight away via [connectNow].
+     */
+    private fun backOff(why: String) {
+        closeGatt()
+        val now = SystemClock.elapsedRealtime()
+        disconnectedSince = now
+        nextConnectAt = now + retryMs
+        Log.w(TAG, "$why; next connect attempt in ${retryMs / 1000}s")
+        retryMs = (retryMs * 2).coerceAtMost(RETRY_MAX_MS)
+    }
+
+    private fun resetBackoff() {
+        retryMs = RETRY_MIN_MS
+        nextConnectAt = 0L
     }
 
     private val gattCb = object : BluetoothGattCallback() {
@@ -395,7 +426,8 @@ class CatPrinter private constructor(context: Context) {
 
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) Log.w(TAG, "write status $status")
-            synchronized(writeMon) { writeOutstanding = false; writeMon.notifyAll() }
+            // A late callback from a handle we already closed must not release the current write.
+            if (g === gatt) synchronized(writeMon) { writeOutstanding = false; writeMon.notifyAll() }
         }
 
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
@@ -418,7 +450,6 @@ class CatPrinter private constructor(context: Context) {
         if (newState == BluetoothProfile.STATE_CONNECTED) {
             Log.i(TAG, "connected to ${g.device.address} (status $status)")
             lastSeen = now
-            retryMs = RETRY_MIN_MS
             state = "connecting"
             h.removeCallbacks(setupTimeout)
             h.postDelayed(setupTimeout, SETUP_TIMEOUT_MS)
@@ -439,8 +470,8 @@ class CatPrinter private constructor(context: Context) {
                 // stays registered and the stack reconnects when the printer comes back.
                 status in LINK_LOSS -> Unit
                 // Anything else (e.g. 133) tends to leave the handle dead. Drop it; the watchdog
-                // opens a fresh one on its next tick (≤ 30 s), so this can't spin.
-                else -> closeGatt()
+                // opens a fresh one once the backoff has passed, so this can't spin.
+                else -> backOff("disconnected with status $status")
             }
             // The watchdog also covers the case where autoConnect never comes back.
         }
@@ -448,7 +479,7 @@ class CatPrinter private constructor(context: Context) {
 
     private fun discover(g: BluetoothGatt) {
         val ok = try { g.discoverServices() } catch (e: Exception) { false }
-        if (!ok) { Log.w(TAG, "discoverServices failed"); reopenAfterDrop() }
+        if (!ok) backOff("discoverServices failed")
     }
 
     private fun onServices(g: BluetoothGatt, status: Int) {
@@ -457,9 +488,8 @@ class CatPrinter private constructor(context: Context) {
         val w = chars.firstOrNull { it.uuid == TX }
         val n = chars.firstOrNull { it.uuid == RX }
         if (status != BluetoothGatt.GATT_SUCCESS || w == null) {
-            Log.w(TAG, "services status $status, ae01 ${if (w == null) "missing" else "ok"}")
             lastError = "Printer characteristic ae01 not found"
-            reopenAfterDrop()
+            backOff("services status $status, ae01 ${if (w == null) "missing" else "ok"}")
             return
         }
         tx = w
@@ -484,6 +514,7 @@ class CatPrinter private constructor(context: Context) {
         if (state == "ready" || tx == null) return
         h.removeCallbacks(setupTimeout)
         state = "ready"
+        resetBackoff() // a full setup succeeded, not just a link that then timed out
         if (lastError?.startsWith("Printer is off") == true || lastError?.contains("timed out") == true ||
             lastError?.startsWith("No printer found") == true) lastError = null
         Log.i(TAG, "ready: ${cfg.printerName} ${cfg.printerAddress}, mtu $mtu")
@@ -543,8 +574,8 @@ class CatPrinter private constructor(context: Context) {
                 "(${SystemClock.elapsedRealtime() - t0} ms)")
             if (state == "printing") state = "ready"
             notifyListener(true, null)
-        } catch (e: Exception) {
-            val msg = if (e is PrintFailure) e.message!! else "Print failed: ${e.message}"
+        } catch (e: Throwable) {
+            val msg = if (e is PrintFailure) e.message!! else "Print failed: ${e.message ?: e.javaClass.simpleName}"
             Log.w(TAG, "print failed: $msg")
             lastError = msg
             if (state == "printing") state = if (tx != null) "ready" else "connecting"
@@ -556,7 +587,7 @@ class CatPrinter private constructor(context: Context) {
         try { listener?.invoke(ok, msg) } catch (e: Exception) { Log.w(TAG, "listener", e) }
     }
 
-    /** Up to 10 s for a connection (longer while a scan that may find it is still running). */
+    /** Up to 20 s for a connection (longer while a scan that may find it is still running). */
     private fun awaitReady(): Boolean {
         if (state == "ready") return true
         h.post { startInternal(); connectNow() }
@@ -618,6 +649,10 @@ class CatPrinter private constructor(context: Context) {
     /** Scales to 384 wide (keeping aspect), flattens alpha onto white, grayscale, dithers. */
     private fun rowsFor(src: Bitmap): List<ByteArray> {
         require(src.width > 0 && src.height > 0) { "empty image" }
+        // The copy below would need width*height*4 bytes; a 384-px receipt never needs more pixels.
+        require(src.width.toLong() * src.height <= MAX_INPUT_PIXELS) {
+            "image too large (${src.width}×${src.height}, max ${MAX_INPUT_PIXELS / 1_000_000} megapixels)"
+        }
         val w = CatPrinterProtocol.WIDTH
         val hgt = (src.height * w.toDouble() / src.width).roundToInt().coerceIn(1, MAX_ROWS)
         val soft = if (src.config == Bitmap.Config.HARDWARE) src.copy(Bitmap.Config.ARGB_8888, false) else src
@@ -680,11 +715,13 @@ class CatPrinter private constructor(context: Context) {
         private const val SCAN_RETRY_MIN_MS = 60_000L
         private const val RESCAN_AFTER_MS = 6 * 60 * 60_000L
         private const val SETUP_TIMEOUT_MS = 15_000L
-        private const val CONNECT_WAIT_MS = 10_000L
+        private const val CONNECT_WAIT_MS = 20_000L
         private const val PAUSE_MAX_MS = 30_000L
         private const val WRITE_TIMEOUT_MS = 2_000L
         private const val PACING_MS = 10L
         private const val MAX_ROWS = 6_000 // ~75 cm of paper
+        /** Largest bitmap accepted for printing (4 MP ≈ 16 MB ARGB); same limit as the JS bridge. */
+        const val MAX_INPUT_PIXELS = 4_000_000L
 
         @Volatile private var instance: CatPrinter? = null
 
