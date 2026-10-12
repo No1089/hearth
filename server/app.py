@@ -6,8 +6,10 @@ One page (static/index.html) with two modes: an idle slideshow (art gallery +
 an immich album) and a touch dashboard (week calendar, shopping list, family
 to-dos, office "busy" banner). This server only aggregates; it owns no data:
 
-- lists     → the todo app (sections `shopping` / `family`), which also drives
-              the receipt printer
+- lists     → the todo app: `shopping` plus its other sections as to-dos; it also
+              drives the receipt printer
+- pocket    → the pocket-money app (balances, goals); chores are kept here, and
+              crediting a day needs the parent PIN
 - calendar  → Home Assistant calendar entities
 - busy      → Home Assistant binary sensors (any `on` = busy)
 - slideshow → frame-art gallery JSON + an immich album (proxied, key stays here)
@@ -29,8 +31,14 @@ def env(name, default=''):
 
 PORT             = int(env('PORT', '5007'))
 TODO_URL         = env('TODO_URL', 'http://localhost:5002').rstrip('/')
-LIST_SECTIONS    = {'shopping': env('SHOPPING_SECTION', 'shopping'),
-                    'family':   env('FAMILY_SECTION', 'family')}
+SHOPPING_SECTION = env('SHOPPING_SECTION', 'shopping')
+# to-do view: these sections first, then the rest of the todo app's sections in its order
+TODO_FIRST       = [x.strip() for x in env('TODO_FIRST', 'home,kids').split(',') if x.strip()]
+TODO_HIDE        = {x.strip() for x in env('TODO_HIDE').split(',') if x.strip()}
+POCKET_URL       = env('POCKET_URL').rstrip('/')
+POCKET_PIN       = env('POCKET_PIN')
+DATA_DIR         = Path(env('DATA_DIR', str(Path(__file__).parent / 'data')))
+HA_WAKE_ENTITIES = [e.strip() for e in env('HA_WAKE_ENTITIES').split(',') if e.strip()]
 HA_URL           = env('HA_URL').rstrip('/')
 HA_TOKEN         = env('HA_TOKEN')
 # calendar.kids|Kids|#e4572e,calendar.family|Family|#3b8ea5
@@ -106,6 +114,8 @@ def api_config():
         'hasWeather': bool(WEATHER_LAT and WEATHER_LON),
         'hasMusic': bool(HA_URL and HA_TOKEN and MUSIC_ENTITY),
         'musicMaxVolume': MUSIC_MAX_VOLUME,
+        'hasPocket': bool(POCKET_URL),
+        'pocketPinSet': bool(POCKET_PIN),
     })
 
 # ── busy + weather (polled every few seconds) ────────────────────────────────
@@ -149,13 +159,25 @@ def _weather():
     return {'temp': round(cur['temperature_2m']), 'label': label, 'icon': icon,
             'isDay': bool(cur.get('is_day', 1)), 'days': days}
 
+def _wake():
+    return any((ha(f'/api/states/{e}') or {}).get('state') == 'on' for e in HA_WAKE_ENTITIES)
+
+def _page_version():
+    # changes whenever the page or this server is redeployed; the page reloads itself on a change
+    return str(int(max((STATIC / 'index.html').stat().st_mtime, Path(__file__).stat().st_mtime)))
+
 @app.route('/api/state')
 def api_state():
-    out = {'now': datetime.now(timezone.utc).isoformat()}
+    out = {'now': datetime.now(timezone.utc).isoformat(), 'version': _page_version()}
     try:
         out['busy'] = cached('busy', 3, _busy)
     except Exception:
         out['busy'] = {'on': False, 'error': True}
+    if HA_URL and HA_TOKEN and HA_WAKE_ENTITIES:
+        try:
+            out['wake'] = cached('wake', 3, _wake)       # e.g. kitchen occupancy → page wakes the screen
+        except Exception:
+            pass
     if WEATHER_LAT and WEATHER_LON:
         try:
             out['weather'] = cached('weather', 600, _weather)
@@ -213,19 +235,37 @@ def _todo_data():
     return http_json(f'{TODO_URL}/api/data')
 
 def _section(kind):
-    sec = LIST_SECTIONS.get(kind)
-    if not sec:
+    """`shopping` or any todo-app section id the dashboard may touch."""
+    if kind == 'shopping':
+        return SHOPPING_SECTION
+    ids = {x['id'] for x in cached('todo-sections', 30, lambda: _todo_data()['sections'])}
+    if kind not in ids or kind in TODO_HIDE or kind == SHOPPING_SECTION:
         abort(404)
-    return sec
+    return kind
 
-def _list(kind):
-    sec = _section(kind)
-    items = [i for i in _todo_data()['items'] if i.get('section_id') == sec]
-    open_items = [{'id': i['id'], 'text': i['text']} for i in items if not i.get('done')]
-    done = sorted({i['text'] for i in items if i.get('done')}, key=str.lower)
+def _summarise(items, sec):
+    mine = [i for i in items if i.get('section_id') == sec]
+    open_items = [{'id': i['id'], 'text': i['text']} for i in mine if not i.get('done')]
+    done = sorted({i['text'] for i in mine if i.get('done')}, key=str.lower)
     open_texts = {i['text'].lower() for i in open_items}
     return {'items': open_items,
             'recent': [t for t in done if t.lower() not in open_texts]}
+
+def _list(kind):
+    return _summarise(_todo_data()['items'], _section(kind))
+
+@app.route('/api/todo')
+def api_todo():
+    """Every to-do section (not shopping) with its open items and done-before suggestions."""
+    try:
+        d = _todo_data()
+    except urllib.error.URLError as e:
+        return jsonify({'error': str(e)}), 502
+    secs = [x for x in d['sections'] if x['id'] != SHOPPING_SECTION and x['id'] not in TODO_HIDE]
+    order = {sid: n for n, sid in enumerate(TODO_FIRST)}
+    secs.sort(key=lambda x: order.get(x['id'], len(order)))   # stable: app order after the pinned ones
+    return jsonify({'sections': [{'id': x['id'], 'label': x['label'], 'pinned': x['id'] in order,
+                                  **_summarise(d['items'], x['id'])} for x in secs]})
 
 @app.route('/api/list/<kind>')
 def api_list(kind):
@@ -279,6 +319,132 @@ def api_list_print(kind):
     except urllib.error.HTTPError as e:
         return jsonify({'ok': False, 'result': f'todo app: HTTP {e.code}'}), 502
     return jsonify(res)
+
+# ── pocket money (balances from the pocket app; chores kept here) ───────────
+
+_pin_fails = {'n': 0, 'until': 0.0}
+_chores_lock = threading.Lock()
+
+def _check_pin(pin):
+    """Parent PIN, with a lockout after 5 wrong tries so it can't be guessed by tapping."""
+    now = time.time()
+    if not POCKET_PIN:
+        return False
+    if now < _pin_fails['until']:
+        return False
+    if str(pin or '') == POCKET_PIN:
+        _pin_fails['n'] = 0
+        return True
+    _pin_fails['n'] += 1
+    if _pin_fails['n'] >= 5:
+        _pin_fails['n'], _pin_fails['until'] = 0, now + 120
+    return False
+
+def _chores_file():
+    return DATA_DIR / 'chores.json'
+
+def _load_chores():
+    try:
+        with open(_chores_file()) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {'chores': {}, 'ticks': {}}
+
+def _save_chores(c):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = _chores_file().with_suffix('.tmp')
+    with open(tmp, 'w') as f:
+        json.dump(c, f, indent=2)
+    os.replace(tmp, _chores_file())                     # atomic: never a half-written file
+
+def _today():
+    return datetime.now().date().isoformat()
+
+def _pocket_view():
+    d = http_json(f'{POCKET_URL}/api/data')
+    c = _load_chores()
+    today = d.get('today') or _today()
+    ticks = c.get('ticks', {}).get(today, {})
+    kids = []
+    for k in d['kids']:
+        day = d.get('days', {}).get(k['id'], {}).get(today, {})
+        goals = [{'name': g['name'], 'amount': g.get('amount'), 'balance': g.get('balance'),
+                  'pct': g.get('goal_pct'), 'eta': g.get('eta')}
+                 for g in k.get('goals', []) if not g.get('completed') and g.get('pct')]
+        kids.append({'id': k['id'], 'name': k['name'], 'balance': k.get('balance'),
+                     'rate': k.get('default_rate'), 'goals': goals,
+                     'workDay': datetime.fromisoformat(today).weekday() in k.get('work_days', [0, 1, 2, 3, 4]),
+                     'credited': bool(day.get('done')),
+                     'chores': c.get('chores', {}).get(k['id'], []),
+                     'ticked': ticks.get(k['id'], [])})
+    return {'today': today, 'kids': kids}
+
+def _pocket_required():
+    if not POCKET_URL:
+        abort(404)
+
+@app.route('/api/pocket')
+def api_pocket():
+    _pocket_required()
+    try:
+        return jsonify(_pocket_view())
+    except urllib.error.URLError as e:
+        return jsonify({'error': str(e)}), 502
+
+@app.route('/api/pocket/<kid_id>/chore/<int:idx>', methods=['POST'])
+def api_pocket_chore(kid_id, idx):
+    """Kids tick their own chores; no PIN."""
+    _pocket_required()
+    with _chores_lock:
+        c = _load_chores()
+        if idx >= len(c.get('chores', {}).get(kid_id, [])):
+            abort(404)
+        today = _today()
+        ticks = c.setdefault('ticks', {})
+        for old in [d for d in ticks if d < today]:        # only today matters
+            del ticks[old]
+        mine = set(ticks.setdefault(today, {}).get(kid_id, []))
+        mine ^= {idx}
+        ticks[today][kid_id] = sorted(mine)
+        _save_chores(c)
+    return jsonify(_pocket_view())
+
+@app.route('/api/pocket/<kid_id>/credit', methods=['POST'])
+def api_pocket_credit(kid_id):
+    """Parent confirms the day: sets today as done in the pocket app (idempotent, not a toggle)."""
+    _pocket_required()
+    if not _check_pin((request.json or {}).get('pin')):
+        return jsonify({'error': 'Wrong PIN' if POCKET_PIN else 'No parent PIN set yet'}), 403
+    today = _today()
+    view = _pocket_view()
+    kid = next((k for k in view['kids'] if k['id'] == kid_id), None)
+    if not kid:
+        abort(404)
+    if not kid['credited']:
+        http_json(f'{POCKET_URL}/api/kid/{kid_id}/day/{today}/edit', 'POST', {'rate': kid['rate'], 'doubled': False})
+    return jsonify(_pocket_view())
+
+@app.route('/api/pocket/<kid_id>/chores', methods=['POST'])
+def api_pocket_set_chores(kid_id):
+    """Parent edits a kid's chore list."""
+    _pocket_required()
+    body = request.json or {}
+    if not _check_pin(body.get('pin')):
+        return jsonify({'error': 'Wrong PIN' if POCKET_PIN else 'No parent PIN set yet'}), 403
+    chores = [' '.join(str(x).split())[:60] for x in body.get('chores', []) if str(x).strip()][:12]
+    with _chores_lock:
+        c = _load_chores()
+        c.setdefault('chores', {})[kid_id] = chores
+        c.get('ticks', {}).get(_today(), {}).pop(kid_id, None)   # list changed: start today's ticks over
+        _save_chores(c)
+    return jsonify(_pocket_view())
+
+@app.route('/api/pocket/pin', methods=['POST'])
+def api_pocket_pin():
+    """Lets the page check a PIN before opening the chore editor."""
+    _pocket_required()
+    ok = _check_pin((request.json or {}).get('pin'))
+    return jsonify({'ok': ok}), (200 if ok else 403)
 
 # ── slideshow ─────────────────────────────────────────────────────────────────
 
@@ -398,6 +564,8 @@ def api_music():
 @app.route('/api/music/favourites')
 def api_music_favourites():
     _music_required()
+    if request.args.get('refresh'):
+        invalidate('favourites')
     try:
         return jsonify(cached('favourites', 600, _favourites))
     except Exception as e:

@@ -6,6 +6,7 @@ services:
     volumes:
       - ./app.py:/app/app.py:ro
       - ./static:/app/static:ro
+      - ./data:/app/data
     working_dir: /app
     command: sh -c "pip install flask websockets --quiet --root-user-action=ignore && python app.py"
     env_file: deploy.env
