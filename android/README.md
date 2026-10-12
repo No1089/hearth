@@ -14,6 +14,7 @@ A small home-made replacement for Fully Kiosk Browser, built for a Samsung Galax
   minutes (default 10) without motion/touch; optional night window with a lower awake brightness.
 - Front-camera motion detection (CameraX `ImageAnalysis`, ~320×240, 2 fps, 32×24 block grid).
 - Page integration: `kiosk` DOM events and a `window.Kiosk` bridge.
+- Bluetooth LE printing to a GB03 "cat printer" (see below).
 - Token-protected local HTTP API (default port 2323) and optional Home Assistant webhook push.
 - Hidden settings: tap the top-left corner (80×80 dp) 5× within 3 s → PIN (default `1234`).
 
@@ -48,7 +49,7 @@ minSdk 29. AndroidX deps are pinned to the last releases that still compile agai
 ```sh
 cd android
 ./gradlew assembleDebug     # -> app/build/outputs/apk/debug/app-debug.apk
-./gradlew test              # JVM unit tests (motion detector, HTTP parsing, night window)
+./gradlew test              # JVM unit tests (motion detector, HTTP parsing, night window, cat-printer protocol)
 ```
 
 `local.properties` (gitignored) is optional when `ANDROID_HOME` is set.
@@ -77,7 +78,8 @@ adb shell am start -n dev.homekiosk/.MainActivity \
 ```
 
 Other accepted extras: `port`, `brightness` (0–255), `night` (true/false), `night_start`/`night_end`
-(`HH:MM`), `night_brightness`, `sleep_minutes`, `motion` (true/false), `motion_debug` (true/false).
+(`HH:MM`), `night_brightness`, `sleep_minutes`, `motion` (true/false), `motion_debug` (true/false),
+`printer` (true/false). One-shot action (not saved): `--ez print_test true`.
 
 The first `am start` (or a reboot) applies the device-owner policies and enters lock task. Check:
 
@@ -122,7 +124,7 @@ configured every request gets `403`. Responses are JSON; actions return the new 
 
 | Method | Path | Notes |
 |---|---|---|
-| GET  | `/status` | `asleep, brightness, awakeBrightness, lastMotionMs, lastTouchMs, battery, charging, plugged, url, appVersion, deviceOwner, lockTask, motionEnabled, motionFraction` |
+| GET  | `/status` | `asleep, brightness, awakeBrightness, lastMotionMs, lastTouchMs, battery, charging, plugged, url, appVersion, deviceOwner, lockTask, motionEnabled, motionFraction, printer` (see Bluetooth printer) |
 | POST | `/wake` | reason `remote` |
 | POST | `/sleep` | reason `remote`; motion is ignored for 10 s afterwards |
 | POST | `/reload` | reloads the WebView |
@@ -154,9 +156,48 @@ window.addEventListener('kiosk', (e) => {
   if (e.detail.state === 'asleep') showArtScreensaver(); else showDashboard();
 });
 // Kiosk.wake(); Kiosk.sleep();   // both report reason 'remote'
+
+// Bluetooth printer (384 px wide receipt; any width is scaled, transparency prints as white)
+const r = Kiosk.printImage(canvas.toDataURL('image/png'));   // "queued" or an error message
+const p = JSON.parse(Kiosk.printerStatus());                 // same as status().printer
+window.addEventListener('kiosk', (e) => {
+  // printer events carry `printer` instead of `state`; ignore them in asleep/awake handlers
+  if (e.detail.printer === 'error') alert(e.detail.message);  // or 'done'
+});
 ```
 
 The first touch on a dimmed screen only wakes it; that gesture is not passed to the page.
+
+## Bluetooth printer
+
+A GB01/GB02/GB03/MX05/06/08/10 thermal "cat printer" (384 px wide). `CatPrinter` holds one BLE
+connection for the whole process; `CatPrinterProtocol` is the pure-Kotlin wire format (reference
+implementation: `tools/catprint.py`).
+
+- **Discovery**: the first start scans 15 s for those names or service `ae30` and saves the first
+  match's address (Settings → *Forget printer* clears it and scans again). Afterwards it
+  `connectGatt(autoConnect = true)`s to the saved address, so the printer reconnects by itself
+  when switched on. With no connection for 2 min the handle is closed and re-armed (backing off
+  to 15 min); it re-scans when the printer hasn't been seen in this process or for 6 h.
+- **Protocol**: write-without-response to `ae01`, notifications on `ae02`. Packet
+  `51 78 <cmd> 00 <len> 00 <data> <crc8> ff` (CRC-8 poly 0x07). Job = GET_STATE, QUALITY 0x33,
+  ENERGY 0xFFFF, APPLY_ENERGY, UPDATE, LATTICE_ON, one `A2` per row (48 bytes, LSB = leftmost,
+  1 = black, Floyd–Steinberg dithered), FEED 90, LATTICE_OFF, GET_STATE. Sent in MTU−3 chunks
+  (MTU 185 requested, chunks capped at 182 bytes), one write in flight, ~10 ms pacing; `ae02`
+  notifications with byte 2 = `AE` pause (byte 6 = `10`) / resume (`00`) sending.
+- **Keepalive**: while connected it writes GET_STATE every 20 s (the printer powers itself off
+  when idle; this is an experiment to see if pinging prevents that). Replies are logged at debug.
+- **Printing**: jobs are queued and run one at a time. If the printer isn't connected a job waits
+  up to 10 s for a connection, then fails with "Printer is off — press its power button".
+- **State** (`/status` → `printer`, `Kiosk.printerStatus()`): `enabled, state` (`off` / `scanning` /
+  `connecting` / `ready` / `printing`), `name, address, lastError, lastPrintAt` (epoch ms).
+- **Permissions**: `BLUETOOTH_SCAN` (`neverForLocation`) + `BLUETOOTH_CONNECT`, auto-granted as
+  device owner, otherwise requested once at runtime (like the camera).
+
+```sh
+adb shell am start -n dev.homekiosk/.MainActivity --ez print_test true
+adb logcat -s CatPrinter:V      # scan / connect / "sent N bytes" / keepalive + notify lines
+```
 
 ## Home Assistant
 

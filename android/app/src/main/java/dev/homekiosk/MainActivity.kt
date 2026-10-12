@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.BatteryManager
@@ -15,6 +16,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.text.InputType
+import android.util.Base64
 import android.util.Log
 import android.util.Size
 import android.view.Gravity
@@ -113,9 +115,20 @@ class MainActivity : ComponentActivity() {
             if (cfg.url != currentUrl && cfg.url.isNotEmpty()) loadStartUrl()
         }
 
+    private var askingPermission = false
+
     private val cameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            askingPermission = false
             if (granted) bindCamera()
+            ensurePrinter()
+        }
+
+    private val btPermissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+            askingPermission = false
+            Log.i(TAG, "bluetooth permissions: $r")
+            ensurePrinter()
         }
 
     // ------------------------------------------------------------------ lifecycle
@@ -134,6 +147,9 @@ class MainActivity : ComponentActivity() {
         cfg.applyExtras(intent?.extras).let { if (it.isNotEmpty()) toast("Config updated: ${it.joinToString()}") }
         KioskPolicy.applyOwnerPolicies(this)
         restartServerIfNeeded()
+        // Process-wide listener; doesn't capture this activity (it may be recreated).
+        CatPrinter.get(this).listener = { ok, msg -> mainHandler.post { active?.get()?.dispatchPrinter(ok, msg) } }
+        if (savedInstanceState == null) handlePrintTest(intent)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -154,6 +170,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         applyIntentExtras(intent)
+        handlePrintTest(intent)
     }
 
     override fun onResume() {
@@ -209,6 +226,16 @@ class MainActivity : ComponentActivity() {
         debugBox.visibility = if (cfg.motionDebug) View.VISIBLE else View.GONE
         applyBrightness()
         if (cfg.motionEnabled) ensureCamera() else unbindCamera()
+        ensurePrinter()
+    }
+
+    /** `--ez print_test true`: a one-shot action, never persisted as config. */
+    private fun handlePrintTest(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_PRINT_TEST, false) != true) return
+        intent.removeExtra(EXTRA_PRINT_TEST) // don't print again if the activity is recreated
+        val err = CatPrinter.get(this).printTestPage()
+        Log.i(TAG, "print_test: ${err ?: "queued"}")
+        toast(err?.let { "Printer: $it" } ?: "Printing test page…")
     }
 
     private fun applyIntentExtras(intent: Intent?) {
@@ -500,9 +527,10 @@ class MainActivity : ComponentActivity() {
         if (cameraBound) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             bindCamera()
-        } else if (cfg.url.isNotEmpty() && !cfg.prefs.getBoolean(Config.K_CAMERA_ASKED, false)) {
+        } else if (cfg.url.isNotEmpty() && !askingPermission && !cfg.prefs.getBoolean(Config.K_CAMERA_ASKED, false)) {
             // Ask once, after first-run setup; device owner auto-grants it (KioskPolicy).
             cfg.prefs.edit().putBoolean(Config.K_CAMERA_ASKED, true).apply()
+            askingPermission = true
             cameraPermission.launch(Manifest.permission.CAMERA)
         }
     }
@@ -541,6 +569,30 @@ class MainActivity : ComponentActivity() {
                 cameraBound = false
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    // ------------------------------------------------------------------ Bluetooth printer
+
+    private fun ensurePrinter() {
+        val printer = CatPrinter.get(this)
+        if (!cfg.printerEnabled) { printer.setEnabled(false); return }
+        if (CatPrinter.hasPermissions(this)) { printer.start(); return }
+        // Device owner auto-grants (KioskPolicy); otherwise ask once, after first-run setup and
+        // never on top of the camera prompt.
+        if (askingPermission || cfg.url.isEmpty() || cfg.prefs.getBoolean(Config.K_BT_ASKED, false)) return
+        if (!cfg.prefs.getBoolean(Config.K_CAMERA_ASKED, false) &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED &&
+            cfg.motionEnabled) return
+        cfg.prefs.edit().putBoolean(Config.K_BT_ASKED, true).apply()
+        askingPermission = true
+        btPermissions.launch(CatPrinter.requiredPermissions())
+    }
+
+    private fun dispatchPrinter(ok: Boolean, message: String?) {
+        // Carries `printer` instead of `state`, so asleep/awake listeners can tell them apart.
+        val detail = if (ok) "{printer:'done'}"
+            else "{printer:'error',message:${JSONObject.quote(message ?: "Printing failed")}}"
+        webView?.evaluateJavascript("window.dispatchEvent(new CustomEvent('kiosk',{detail:$detail}));", null)
     }
 
     private fun unbindCamera() {
@@ -659,6 +711,7 @@ class MainActivity : ComponentActivity() {
             put("lockTask", KioskPolicy.isInLockTask(this@MainActivity))
             put("motionEnabled", cfg.motionEnabled && cameraBound)
             put("motionFraction", lastFraction.toDouble())
+            put("printer", CatPrinter.get(this@MainActivity).statusJson())
         }
     }
 
@@ -670,6 +723,20 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface fun wake() { main.post { wakeUp("remote") } }
         @JavascriptInterface fun sleep() { main.post { goToSleep("remote") } }
         @JavascriptInterface fun status(): String = statusJson().toString()
+        @JavascriptInterface fun printerStatus(): String = CatPrinter.get(this@MainActivity).statusJson().toString()
+
+        /** Accepts `data:image/png;base64,…`; returns "queued" or an error message right away. */
+        @JavascriptInterface fun printImage(dataUrl: String?): String {
+            val s = dataUrl ?: return "No image"
+            val comma = s.indexOf(',')
+            if (!s.startsWith("data:image/") || comma < 0 || !s.substring(0, comma).endsWith(";base64"))
+                return "Expected a data:image/…;base64 URL"
+            val bmp = try {
+                val bytes = Base64.decode(s.substring(comma + 1), Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            } catch (e: Exception) { null } ?: return "Couldn't decode image"
+            return CatPrinter.get(this@MainActivity).print(bmp) ?: "queued"
+        }
     }
 
     private fun toast(s: String) = main.post { Toast.makeText(this, s, Toast.LENGTH_LONG).show() }
@@ -678,6 +745,8 @@ class MainActivity : ComponentActivity() {
         private var server: KioskHttpServer? = null
         private var serverPort = -1
         @Volatile private var active: java.lang.ref.WeakReference<MainActivity>? = null
+        private val mainHandler = Handler(Looper.getMainLooper())
+        private const val EXTRA_PRINT_TEST = "print_test"
         private const val TAG = "HomeKiosk"
         private const val TICK_MS = 15_000L
         private const val RETRY_MIN_MS = 5_000L

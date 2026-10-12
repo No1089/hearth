@@ -58,6 +58,12 @@ object KioskPolicy {
             dpm.setPermissionGrantState(admin, activity.packageName, Manifest.permission.CAMERA,
                 DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED)
         } catch (e: Exception) { Log.w(TAG, "camera grant", e) }
+        for (p in CatPrinter.requiredPermissions()) {
+            try {
+                dpm.setPermissionGrantState(admin, activity.packageName, p,
+                    DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED)
+            } catch (e: Exception) { Log.w(TAG, "grant $p", e) }
+        }
         return true
     }
 

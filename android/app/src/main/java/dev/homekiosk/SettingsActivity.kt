@@ -4,6 +4,8 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
@@ -42,6 +44,9 @@ class SettingsActivity : Activity() {
     private lateinit var token: EditText
     private lateinit var webhook: EditText
     private lateinit var pin: EditText
+    private lateinit var printerOn: Switch
+    private lateinit var printerInfo: TextView
+    private val main = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -86,6 +91,20 @@ class SettingsActivity : Activity() {
         webhook = text("Webhook URL (optional)", cfg.haWebhook, InputType.TYPE_TEXT_VARIATION_URI,
             "https://ha.example.com/api/webhook/…")
 
+        header("Bluetooth printer")
+        printerOn = switch("Enabled (GB03 \"cat printer\")", cfg.printerEnabled)
+        printerOn.setOnCheckedChangeListener { _, on -> CatPrinter.get(this).setEnabled(on) }
+        printerInfo = TextView(this).apply { textSize = 13f; setPadding(0, dp(4), 0, dp(4)) }
+        form.addView(printerInfo)
+        button("Forget printer (scan for a new one)") {
+            CatPrinter.get(this).forget()
+            Toast.makeText(this, "Forgotten — scanning…", Toast.LENGTH_SHORT).show()
+        }
+        button("Print test page") {
+            val err = CatPrinter.get(this).printTestPage()
+            Toast.makeText(this, err ?: "Test page queued", Toast.LENGTH_SHORT).show()
+        }
+
         header("Security")
         pin = text("Settings PIN", cfg.pin, InputType.TYPE_CLASS_NUMBER)
 
@@ -106,6 +125,28 @@ class SettingsActivity : Activity() {
                 .setPositiveButton("Remove") { _, _ -> setResult(RESULT_REMOVE_OWNER); finish() }
                 .setNegativeButton("Cancel", null)
                 .show()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        main.post(refreshPrinter)
+    }
+
+    override fun onPause() {
+        main.removeCallbacks(refreshPrinter)
+        super.onPause()
+    }
+
+    private val refreshPrinter = object : Runnable {
+        override fun run() {
+            val s = CatPrinter.get(this@SettingsActivity).statusJson()
+            fun f(k: String) = if (s.isNull(k)) "—" else s.get(k).toString()
+            val last = if (s.isNull("lastPrintAt")) "never"
+                else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(s.getLong("lastPrintAt")))
+            printerInfo.text = "State: ${f("state")}\nPrinter: ${f("name")} ${f("address")}\n" +
+                "Last print: $last" + (if (s.isNull("lastError")) "" else "\nLast error: ${f("lastError")}")
+            main.postDelayed(this, 1000)
         }
     }
 
@@ -147,6 +188,7 @@ class SettingsActivity : Activity() {
             .putString(Config.K_HTTP_TOKEN, token.text.toString().trim())
             .putString(Config.K_HA_WEBHOOK, wh)
             .putString(Config.K_PIN, pn)
+            .putBoolean(Config.K_PRINTER_ENABLED, printerOn.isChecked)
             .apply()
         Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
         return true

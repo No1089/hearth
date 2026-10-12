@@ -48,6 +48,17 @@ class Config(context: Context) {
     val haWebhook: String get() = prefs.getString(K_HA_WEBHOOK, "") ?: ""
     val pin: String get() = prefs.getString(K_PIN, "1234") ?: "1234"
 
+    /** Bluetooth "cat printer" (GB03 etc.). Address/name are filled in by the first scan. */
+    var printerEnabled: Boolean
+        get() = prefs.getBoolean(K_PRINTER_ENABLED, true)
+        set(v) = prefs.edit().putBoolean(K_PRINTER_ENABLED, v).apply()
+    var printerAddress: String
+        get() = prefs.getString(K_PRINTER_ADDRESS, "") ?: ""
+        set(v) = prefs.edit().putString(K_PRINTER_ADDRESS, v).apply()
+    var printerName: String
+        get() = prefs.getString(K_PRINTER_NAME, "") ?: ""
+        set(v) = prefs.edit().putString(K_PRINTER_NAME, v).apply()
+
     /** Awake brightness for "now", taking the night window into account. 0-255 */
     fun effectiveAwakeBrightness(now: Calendar = Calendar.getInstance()): Int {
         if (!nightEnabled) return awakeBrightness
@@ -95,6 +106,7 @@ class Config(context: Context) {
         bool("night", K_NIGHT_ENABLED)
         bool("motion", K_MOTION_ENABLED)
         bool("motion_debug", K_MOTION_DEBUG)
+        bool("printer", K_PRINTER_ENABLED)
         e.apply()
         return changed
     }
@@ -117,6 +129,10 @@ class Config(context: Context) {
         const val K_HA_WEBHOOK = "ha_webhook"
         const val K_PIN = "pin"
         const val K_CAMERA_ASKED = "camera_asked"
+        const val K_BT_ASKED = "bt_asked"
+        const val K_PRINTER_ENABLED = "printer_enabled"
+        const val K_PRINTER_ADDRESS = "printer_address"
+        const val K_PRINTER_NAME = "printer_name"
 
         /** "HH:MM" -> minutes since midnight, or null. */
         fun parseHm(s: String): Int? {
