@@ -84,8 +84,6 @@ class MainActivity : ComponentActivity() {
     private var resumed = false
 
     // --- HTTP ---
-    private var server: KioskHttpServer? = null
-    private var serverPort = -1
 
     // --- camera ---
     private val detector = MotionDetector()
@@ -161,6 +159,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         resumed = true
+        active = java.lang.ref.WeakReference(this)
         hideSystemBars()
         KioskPolicy.applyOwnerPolicies(this)
         KioskPolicy.maybeStartLockTask(this)
@@ -180,8 +179,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
-        server?.stop()
-        server = null
+        if (active?.get() === this) active = null
         ha.shutdown()
         cameraProvider?.unbindAll()
         analysisExecutor?.shutdown()
@@ -581,19 +579,26 @@ class MainActivity : ComponentActivity() {
 
     // ------------------------------------------------------------------ HTTP API
 
+    /**
+     * One server per process, not per activity: Android can hold two MainActivity instances
+     * (the HOME-type one started at boot plus a regular one), and the second would fail to
+     * bind. Requests go to whichever instance was resumed last.
+     */
     private fun restartServerIfNeeded() {
         val port = cfg.httpPort
         if (server != null && port == serverPort) return
         server?.stop()
         serverPort = port
-        server = KioskHttpServer(port, ::handleHttp).also {
+        server = KioskHttpServer(port) { req ->
+            active?.get()?.handleHttp(req) ?: HttpResponse(503, """{"error":"no active screen"}""")
+        }.also {
             it.start()
             it.lastError?.let { e -> Log.w(TAG, e); toast("HTTP: $e") }
         }
     }
 
     /** Runs on an HTTP worker thread. */
-    private fun handleHttp(req: HttpRequest): HttpResponse {
+    internal fun handleHttp(req: HttpRequest): HttpResponse {
         val token = cfg.httpToken
         if (token.isEmpty()) return HttpResponse(403, """{"error":"no token configured"}""")
         if (!req.isAuthorized(token)) return HttpResponse(401, """{"error":"unauthorized"}""")
@@ -669,6 +674,9 @@ class MainActivity : ComponentActivity() {
     private fun toast(s: String) = main.post { Toast.makeText(this, s, Toast.LENGTH_LONG).show() }
 
     companion object {
+        private var server: KioskHttpServer? = null
+        private var serverPort = -1
+        @Volatile private var active: java.lang.ref.WeakReference<MainActivity>? = null
         private const val TAG = "HomeKiosk"
         private const val TICK_MS = 15_000L
         private const val RETRY_MIN_MS = 5_000L
