@@ -39,10 +39,10 @@ body.busy #busy { transform: translate(-50%, 0); }
 
 /* ── screensaver ──────────────────────────────────────── */
 #saver { position: fixed; inset: 0; background: #000; color: #eee; z-index: 10; }
-#saver img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+#saver > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
   opacity: 0; transition: opacity 1.4s ease; }
-#saver img.cover { object-fit: cover; }
-#saver img.on { opacity: 1; }
+#saver > img.cover { object-fit: cover; }
+#saver > img.on { opacity: 1; }
 #saver .meta { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end;
   justify-content: space-between; gap: 2em; padding: 3em 1.6em 1.2em;
   background: linear-gradient(to top, rgba(0,0,0,.78), rgba(0,0,0,.35) 60%, transparent); }
@@ -199,15 +199,25 @@ main { position: relative; min-height: 0; padding: .3em 1.2em 1.1em .2em; }
 .editor .actions { padding: 0; justify-content: flex-end; }
 
 /* screensaver music pill */
-#saver-music { position: absolute; z-index: 2; top: 1em; left: 1em; display: flex; align-items: center; gap: .7em;
-  background: rgba(0,0,0,.55); color: #eee; border-radius: 999px; padding: .35em .45em .35em .35em; max-width: 46%;
-  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-#saver-music img { width: 2.3em; height: 2.3em; border-radius: 50%; object-fit: cover; background: #333; flex: none; }
+#saver-music { position: absolute; z-index: 2; top: 1em; left: 1em; width: min(21em, 44vw); display: flex; flex-direction: column;
+  gap: .8em; background: rgba(0,0,0,.62); color: #eee; border-radius: 20px; padding: 1em;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); animation: fadein .25s ease; }
+@keyframes fadein { from { opacity: 0; transform: translateY(-6px); } }
+#saver-music .sm-top { display: flex; align-items: center; gap: .8em; min-width: 0; }
+#saver-music img { width: 3.6em; height: 3.6em; border-radius: 10px; object-fit: cover; background: #333; flex: none; }
 #saver-music img:not([src]) { visibility: hidden; }
-#saver-music .sm-text { display: flex; flex-direction: column; min-width: 0; text-align: left; line-height: 1.2; }
+#saver-music .sm-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 #saver-music b, #saver-music small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#saver-music b { font-size: .85rem; } #saver-music small { font-size: .72rem; color: #aaa; }
-#saver-music .sm-pp { width: 2.3em; height: 2.3em; border-radius: 50%; background: #fff; color: #111; display: grid; place-items: center; flex: none; font-size: 1.05rem; }
+#saver-music b { font-size: 1rem; } #saver-music small { font-size: .85rem; color: #aaa; }
+#saver-music button { color: #eee; }
+#saver-music .sm-ctl { display: flex; justify-content: center; align-items: center; gap: 1.4em; }
+#saver-music .sm-ctl button { font-size: 1.5rem; width: 2em; height: 2em; display: grid; place-items: center; border-radius: 50%; }
+#saver-music .sm-ctl button:active { background: rgba(255,255,255,.15); }
+#saver-music .sm-ctl .sm-pp { background: #fff; color: #111; width: 2.3em; height: 2.3em; font-size: 1.7rem; }
+#saver-music .sm-vol { display: flex; align-items: center; gap: .7em; }
+#saver-music .sm-vol button { width: 2.1em; height: 2.1em; border-radius: 50%; background: rgba(255,255,255,.14); font-size: 1.25rem; font-weight: 700; flex: none; }
+#saver-music .sm-vol .bar { flex: 1; height: .55em; border-radius: 999px; background: rgba(255,255,255,.18); overflow: hidden; }
+#saver-music .sm-vol .bar i { display: block; height: 100%; width: 0; background: #fff; border-radius: 999px; transition: width .3s; }
 
 /* music */
 .card h2 .refresh { margin-left: auto; width: 2.2em; height: 2.2em; border-radius: 50%; background: var(--chip);
@@ -298,9 +308,15 @@ body.night #toast button { color: #10201c; }
 
 <div id="saver">
   <img id="sa" alt=""><img id="sb" alt="">
-  <button id="saver-music" class="hidden" aria-label="Play or pause music">
-    <img alt=""><span class="sm-text"><b></b><small></small></span><span class="sm-pp"><svg><use href="#i-play"/></svg></span>
-  </button>
+  <div id="saver-music" class="hidden">
+    <div class="sm-top"><img alt=""><span class="sm-text"><b></b><small></small></span></div>
+    <div class="sm-ctl">
+      <button data-act="previous" aria-label="Previous"><svg><use href="#i-prev"/></svg></button>
+      <button data-act="play_pause" class="sm-pp" aria-label="Play or pause"><svg><use href="#i-play"/></svg></button>
+      <button data-act="next" aria-label="Next"><svg><use href="#i-next"/></svg></button>
+    </div>
+    <div class="sm-vol"><button data-vol="-1" aria-label="Quieter">−</button><div class="bar"><i data-volfill></i></div><button data-vol="1" aria-label="Louder">+</button></div>
+  </div>
   <div class="meta">
     <div id="caption"></div>
     <div class="clock"><div class="time" data-clock></div><div class="sub"><span class="batt hidden" data-batt></span><span data-date></span><span data-wx></span></div></div>
@@ -357,7 +373,7 @@ body.night #toast button { color: #10201c; }
           <button data-act="play_pause" class="pp" aria-label="Play or pause"><svg id="pp-icon"><use href="#i-play"/></svg></button>
           <button data-act="next" aria-label="Next"><svg><use href="#i-next"/></svg></button>
         </div>
-        <div class="vol"><button data-vol="-1" aria-label="Quieter">−</button><div class="bar" id="vol-bar"><i id="vol-fill"></i></div><button data-vol="1" aria-label="Louder">+</button></div>
+        <div class="vol"><button data-vol="-1" aria-label="Quieter">−</button><div class="bar" id="vol-bar"><i id="vol-fill" data-volfill></i></div><button data-vol="1" aria-label="Louder">+</button></div>
       </div>
       <div class="card favs"><h2>Favourites<button class="refresh" id="music-refresh" aria-label="Refresh"><svg><use href="#i-refresh"/></svg></button></h2><div class="fav-grid" id="fav-grid"></div></div>
     </section>
@@ -454,6 +470,7 @@ function renderBusySince() {
 
 /* ── modes ─────────────────────────────────────── */
 function showSaver() {
+  setSaverPanel(false);
   if (document.activeElement?.tagName === 'INPUT') document.activeElement.blur();
   mode = 'saver';
   $('#dash').classList.add('hidden');
@@ -480,7 +497,19 @@ function setView(v) {
   else loadList(v);
 }
 
-$('#saver').addEventListener('click', () => showDash());
+/* screensaver taps: first tap shows the music panel (if something's loaded); a tap anywhere else then opens the dashboard */
+let saverPanelOpen = false, saverPanelTimer;
+const musicLoaded = () => music && music.title && ['playing', 'paused'].includes(music.state);
+function setSaverPanel(open) {
+  saverPanelOpen = open && musicLoaded();
+  $('#saver-music').classList.toggle('hidden', !saverPanelOpen);
+  clearTimeout(saverPanelTimer);
+  if (saverPanelOpen) saverPanelTimer = setTimeout(() => setSaverPanel(false), 12e3);
+}
+$('#saver').addEventListener('click', () => {
+  if (!saverPanelOpen && musicLoaded()) { setSaverPanel(true); return; }
+  setSaverPanel(false); showDash();
+});
 $('#to-saver').addEventListener('click', showSaver);
 $$('nav button').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
 ['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, () => lastTouch = Date.now(), true));
@@ -803,12 +832,12 @@ function renderMusic() {
   $('#pp-icon use').setAttribute('href', playing ? '#i-pause' : '#i-play');
   $('.np').classList.toggle('off', off);
   const pill = $('#saver-music');
-  pill.classList.toggle('hidden', off || !m.title || !['playing', 'paused'].includes(m.state));
+  if (saverPanelOpen && !musicLoaded()) setSaverPanel(false);
   $('b', pill).textContent = m.title || ''; $('small', pill).textContent = m.artist || '';
   const pimg = $('img', pill);
   if ((m.art || '') !== (pimg.getAttribute('src') || '')) m.art ? pimg.src = m.art : pimg.removeAttribute('src');
   $('.sm-pp use', pill).setAttribute('href', playing ? '#i-pause' : '#i-play');
-  if (volPending === null) $('#vol-fill').style.width = `${Math.round(100 * (m.volume || 0) / (config.musicMaxVolume || 1))}%`;
+  if (volPending === null) setVolFill(m.volume || 0);
 }
 async function loadFavs(refresh) {
   if (!config.hasMusic || (favs && !refresh)) { renderFavs(); return; }
@@ -825,24 +854,32 @@ function renderFavs() {
     ? favs.map((f, i) => `<button class="fav" data-i="${i}"><div class="th" ${f.thumb ? `style="background-image:url('${esc(f.thumb)}')"` : ''}>${f.thumb ? '' : icon('i-music')}</div><div class="nm">${esc(f.title)}</div></button>`).join('')
     : `<div class="none">${favs ? 'No favourites yet — add some in the Sonos app (♥) and they appear here.' : 'Loading…'}</div>`;
 }
-$('#saver-music').addEventListener('click', async e => {
-  e.stopPropagation();                               // don't open the dashboard
-  if (music) { music.state = music.state === 'playing' ? 'paused' : 'playing'; renderMusic(); }
-  try { await api('/api/music/play_pause', { method: 'POST', body: {} }); } catch { toast("Couldn't reach the speaker"); }
+async function musicAction(act) {
+  if (act === 'play_pause' && music) { music.state = music.state === 'playing' ? 'paused' : 'playing'; renderMusic(); }
+  try { await api(`/api/music/${act}`, { method: 'POST', body: {} }); } catch { toast("Couldn't reach the speaker"); }
   setTimeout(loadMusic, 700);
-});
-$('.np-ctl').addEventListener('click', async e => {
+}
+function setVolFill(level) {
+  $$('[data-volfill]').forEach(el => el.style.width = `${Math.round(100 * level / (config.musicMaxVolume || 1))}%`);
+}
+$('#saver-music').addEventListener('click', e => {
+  e.stopPropagation();                               // taps inside the panel never open the dashboard
+  setSaverPanel(true);                               // and keep it open a bit longer
   const b = e.target.closest('button'); if (!b) return;
-  if (b.dataset.act === 'play_pause' && music) { music.state = music.state === 'playing' ? 'paused' : 'playing'; renderMusic(); }
-  try { await api(`/api/music/${b.dataset.act}`, { method: 'POST', body: {} }); } catch { toast("Couldn't reach the speaker"); }
-  setTimeout(loadMusic, 700);
+  if (b.dataset.act) musicAction(b.dataset.act); else if (b.dataset.vol) stepVolume(+b.dataset.vol);
+});
+$('.np-ctl').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (b) musicAction(b.dataset.act);
 });
 $('.vol').addEventListener('click', e => {
-  const b = e.target.closest('button[data-vol]'); if (!b || !music) return;
+  const b = e.target.closest('button[data-vol]'); if (b) stepVolume(+b.dataset.vol);
+});
+function stepVolume(dir) {
+  if (!music) return;
   const max = config.musicMaxVolume || 1, step = max / 10;
   const cur = volPending ?? music.volume ?? 0;
-  volPending = Math.max(0, Math.min(max, cur + step * +b.dataset.vol));
-  $('#vol-fill').style.width = `${Math.round(100 * volPending / max)}%`;
+  volPending = Math.max(0, Math.min(max, cur + step * dir));
+  setVolFill(volPending);
   clearTimeout(volTimer);
   volTimer = setTimeout(async () => {               // coalesce rapid taps into one call
     const level = volPending;
@@ -850,7 +887,7 @@ $('.vol').addEventListener('click', e => {
     catch { toast("Couldn't reach the speaker"); }
     volPending = null; loadMusic();
   }, 350);
-});
+}
 let volTimer;
 $('#fav-grid').addEventListener('click', async e => {
   const b = e.target.closest('.fav'); if (!b) return;
