@@ -60,10 +60,8 @@ body.busy #busy { transform: translate(-50%, 0); }
 #dash { position: fixed; inset: 0; display: grid; grid-template-columns: 6.4em 1fr; grid-template-rows: auto 1fr; }
 header { grid-column: 1 / 3; display: flex; align-items: center; gap: 1.2em; padding: .7em 1.2em .5em 1.4em; }
 header .time { font-size: 2.3rem; font-weight: 300; letter-spacing: -.02em; line-height: 1; }
-header .date { font-size: 1.05rem; color: var(--dim); }
-header .legend + .wx { margin-left: 1.2em; }
-header .legend.hidden + .wx, header .legend:empty + .wx { margin-left: auto; }
-header .wx { margin-left: auto; display: flex; align-items: center; gap: .45em; font-size: 1.15rem; }
+header .date { font-size: 1.05rem; color: var(--dim); flex: 1; }
+header .wx { display: flex; align-items: center; gap: .45em; font-size: 1.15rem; }
 header .wx svg { font-size: 1.5em; }
 header .wx small { color: var(--dim); font-size: .8em; }
 header .art-btn { width: 2.6em; height: 2.6em; border-radius: 50%; display: grid; place-items: center;
@@ -99,7 +97,7 @@ main { position: relative; min-height: 0; padding: .3em 1.2em 1.1em .2em; }
 .ev.past { opacity: .45; }
 .day .none { color: var(--faint); font-size: .8rem; text-align: center; margin-top: 1em; }
 .empty-note { grid-column: 1 / -1; align-self: center; text-align: center; color: var(--dim); }
-.legend { display: flex; gap: .9em; font-size: .8rem; color: var(--dim); margin-left: auto; }
+.legend { display: flex; gap: .9em; font-size: .8rem; color: var(--dim); }
 .legend i { display: inline-block; width: .7em; height: .7em; border-radius: 3px; margin-right: .35em; background: var(--c); }
 
 /* lists */
@@ -135,6 +133,15 @@ main { position: relative; min-height: 0; padding: .3em 1.2em 1.1em .2em; }
 .chip { background: var(--chip); border-radius: 999px; padding: .4em .85em; font-size: .95rem; }
 .chip:active { background: var(--accent); color: var(--accent-ink); }
 .actions { padding: .8em; display: flex; gap: .5em; margin-top: auto; }
+
+/* battery (only shown when unplugged) */
+.batt { display: inline-flex; align-items: center; gap: .35em; font-size: .9rem; font-weight: 700; color: var(--dim); }
+.batt .cell { width: 1.7em; height: .85em; border: 2px solid currentColor; border-radius: 3px; position: relative; padding: 1px; }
+.batt .cell::after { content: ""; position: absolute; right: -4px; top: 50%; width: 2px; height: 40%; transform: translateY(-50%); background: currentColor; border-radius: 0 1px 1px 0; }
+.batt .cell i { display: block; height: 100%; background: currentColor; border-radius: 1px; }
+.batt.low { color: var(--busy); }
+#saver .batt { color: #ccc; font-size: .8rem; }
+#saver .batt.low { color: #ff6b5e; }
 
 /* to-do sections */
 .tabs { display: flex; gap: .4em; padding: .8em .8em 0; overflow-x: auto; scrollbar-width: none; flex: none; }
@@ -296,7 +303,7 @@ body.night #toast button { color: #10201c; }
   </button>
   <div class="meta">
     <div id="caption"></div>
-    <div class="clock"><div class="time" data-clock></div><div class="sub"><span data-date></span><span data-wx></span></div></div>
+    <div class="clock"><div class="time" data-clock></div><div class="sub"><span class="batt hidden" data-batt></span><span data-date></span><span data-wx></span></div></div>
   </div>
 </div>
 
@@ -305,6 +312,7 @@ body.night #toast button { color: #10201c; }
     <div class="time" data-clock></div>
     <div class="date" data-datelong></div>
     <div class="legend" id="legend"></div>
+    <div class="batt hidden" data-batt></div>
     <div class="wx" data-wxlong></div>
     <button class="art-btn" id="to-saver" aria-label="Pictures"><svg><use href="#i-image"/></svg></button>
   </header>
@@ -480,6 +488,20 @@ setInterval(() => {
   const typing = document.activeElement?.tagName === 'INPUT' && document.activeElement.value;
   if (mode === 'dash' && !typing && Date.now() - lastTouch > IDLE_TO_SAVER_MS) showSaver();
 }, 5e3);
+
+/* battery: from the kiosk app's status; shown only while running on battery */
+function pollBattery() {
+  let st = null;
+  try { st = JSON.parse(window.Kiosk?.status?.() || 'null'); } catch {}
+  const show = st && st.battery != null && !st.plugged;
+  $$('[data-batt]').forEach(el => {
+    el.classList.toggle('hidden', !show);
+    if (!show) return;
+    el.classList.toggle('low', st.battery <= 20);
+    el.innerHTML = `<span class="cell"><i style="width:${Math.max(4, st.battery)}%"></i></span>${st.battery}%`;
+    el.title = 'Running on battery — plug the tablet in';
+  });
+}
 
 /* kiosk app bridge (Android wrapper); harmless in a normal browser */
 function kiosk(cmd) { try { window.Kiosk?.[cmd]?.(); } catch {} }
@@ -856,6 +878,7 @@ $('#toast button').addEventListener('click', async () => {
   $('#busy-label').textContent = config.busyLabel || 'On a call';
   tick(); setInterval(tick, 1e3);
   pollState(); setInterval(pollState, 4e3);
+  pollBattery(); setInterval(pollBattery, 30e3);
   setInterval(renderBusySince, 30e3);
   await loadSlides(); setInterval(loadSlides, 3600e3);
   loadList('shopping'); loadTodo();

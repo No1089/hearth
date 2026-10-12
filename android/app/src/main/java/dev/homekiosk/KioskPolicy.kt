@@ -3,12 +3,15 @@ package dev.homekiosk
 import android.Manifest
 import android.app.Activity
 import android.app.ActivityManager
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 
@@ -16,7 +19,6 @@ import android.util.Log
 object KioskPolicy {
     private const val TAG = "KioskPolicy"
 
-    /** Session flag set by "Exit kiosk" in Settings so we don't immediately re-lock. */
     /** "Exit kiosk" pauses the lock until this time (elapsedRealtime); it re-locks by itself. */
     @Volatile private var lockSuspendedUntil = 0L
     const val LOCK_PAUSE_MS = 10 * 60_000L
@@ -65,15 +67,32 @@ object KioskPolicy {
 
     /** Enters lock task only when device owner (otherwise Android would show screen pinning). */
     fun maybeStartLockTask(activity: Activity) {
-        if (android.os.SystemClock.elapsedRealtime() < lockSuspendedUntil || !isDeviceOwner(activity)) return
+        if (SystemClock.elapsedRealtime() < lockSuspendedUntil || !isDeviceOwner(activity)) return
         if (!dpm(activity)!!.isLockTaskPermitted(activity.packageName)) return
         if (isInLockTask(activity)) return
         try { activity.startLockTask() } catch (e: Exception) { Log.w(TAG, "startLockTask", e) }
     }
 
     fun stopLockTask(activity: Activity, pauseMs: Long = Long.MAX_VALUE / 2) {
-        lockSuspendedUntil = android.os.SystemClock.elapsedRealtime() + pauseMs
+        lockSuspendedUntil = SystemClock.elapsedRealtime() + pauseMs
+        if (pauseMs < LOCK_PAUSE_MS * 10) scheduleReturn(activity, pauseMs)
         try { if (isInLockTask(activity)) activity.stopLockTask() } catch (e: Exception) { Log.w(TAG, "stopLockTask", e) }
+    }
+
+    /**
+     * When an "Exit kiosk" pause ends, bring the kiosk back to the front even if someone left
+     * Android Settings open on top (onResume then re-locks). An alarm rather than a Handler,
+     * because Samsung freezes background apps and a frozen process never runs its timers.
+     */
+    private fun scheduleReturn(ctx: Context, delayMs: Long) {
+        val launch = Intent(ctx, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        val pi = PendingIntent.getActivity(ctx, 42, launch,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val am = ctx.getSystemService(AlarmManager::class.java) ?: return
+        // Inexact is fine for a 10-minute pause and needs no exact-alarm permission.
+        am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            SystemClock.elapsedRealtime() + delayMs + 1_000, pi)
     }
 
     /** Undoes our policies and gives up device owner so the app can be uninstalled. */
