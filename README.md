@@ -84,6 +84,30 @@ The page reloads itself after a deploy. It wakes the screen when the busy
 banner or a kitchen occupancy sensor turns on, and shows a battery gauge only
 when someone has unplugged it.
 
+## The camera
+
+A front camera pointing at the kitchen deserves its own paragraph. It does one
+job: noticing that someone has walked up, so the screen comes back on.
+
+Nothing in the app can see a picture. CameraX hands the analyser one frame at
+a time; it keeps the luminance plane only, averages it down to a 32×24 grid of
+brightness values, compares that grid with the last one, and drops the frame.
+No preview, no still capture, no video, no JPEG encoder, no file writes: there
+is no code path that turns a frame into an image, so there is nothing to leak.
+What leaves the device about motion is a number (`motionFraction` on the
+token-gated `/status`) and, if a Home Assistant webhook is configured,
+`{"event": "motion"}`.
+
+The dashboard page can't get at the camera either. The WebView never grants
+web camera access, and `window.Kiosk` has no camera methods. Android's own
+green camera-in-use dot stays on, drawn by the system, and the app can't hide
+it.
+
+The exposure that remains is physical. Anyone who can plug in with USB
+debugging on can install anything, which is why debugging should be off once
+the tablet is on the wall, and why the tablet is best kept off the internet
+altogether.
+
 ## Running it
 
 ```sh
