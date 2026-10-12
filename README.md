@@ -1,33 +1,93 @@
 # home-dash
 
-A kitchen wall dashboard on a spare Android tablet, replacing a hacked "smart frame".
+A kitchen wall dashboard on a spare Galaxy Tab A11. It shows public-domain
+paintings and family photos until someone walks up. A tap then shows the
+week's calendar, the shopping list, the to-dos, the kids' pocket money and
+chores, and the kitchen speaker. A red "on a call" banner tells the kids when
+not to run into the office. It prints shopping lists and pocket-money receipts
+on a cheap Bluetooth thermal printer whose own app nobody could stand.
 
-- **`server/`**: a small Flask app plus one static page. When idle it shows a slideshow of the
-  art gallery and an immich album. Touching it opens the dashboard: the week's calendar,
-  the shopping list, family to-dos, and an office **busy** banner.
-- **`android/`**: a minimal kiosk wrapper for the tablet. It runs a full-screen WebView,
-  watches the front camera for motion to wake the screen, dims the backlight instead of
-  sleeping, and has a small HTTP API so Home Assistant can wake it.
+Two parts:
 
-The server stores no data of its own:
+- **`server/`** is a small Flask app plus one page. It owns no data: lists come
+  from the todo app, the calendar, busy state and speaker from Home Assistant,
+  balances from the pocket-money app, and pictures from the
+  [frame-art](https://github.com/No1089/frame-art) gallery.
+- **`android/`** is a home-made replacement for Fully Kiosk Browser. It runs a
+  full-screen WebView, locks the tablet to it, wakes on camera motion and
+  drives the printer.
 
-| Feature  | Source                                                                              |
-|----------|-------------------------------------------------------------------------------------|
-| Lists    | the todo app (sections `shopping` / `family`), which also prints via the receipt printer (`POST /api/print-section/<id>`) |
-| Calendar | Home Assistant `calendar.*` entities (e.g. the Google Calendar integration)          |
-| Busy     | Home Assistant binary sensors; any one `on` shows the banner (the HA macOS app's mic/camera-in-use sensors work well) |
-| Pictures | the art gallery's `/api/works` + immich albums (the server proxies album assets only, so the API key stays server-side) |
-| Weather  | open-meteo                                                                           |
+## Why it exists
 
-## Run
+The cheap smart frames everyone has been
+[taking apart this week](https://wesbos.com/hacking-smart-photo-frames) are
+Android tablets in a picture-frame shell, sold to get you onto a subscription.
+A tablet that has been sitting in a drawer since the kids got iPads is the
+same thing with a better screen, and it doesn't need rooting first.
+
+It still needed persuading:
+
+**A tablet wants to be a tablet.** Turn the screen off and Android takes the
+camera away, so there is nothing left to notice someone walking up. The app
+never turns the screen off. "Asleep" is backlight zero behind a black layer,
+and the front camera keeps comparing 32×24 grids of brightness twice a
+second.
+
+**Samsung wants it to be a Samsung.** Before the app can lock the tablet as
+device owner, every account has to go, including Google Meet's, which outlives
+the app being disabled and only leaves after a reboot. Auto Blocker refuses
+USB debugging. Freecess freezes the kiosk the moment Settings is in front of
+it, and Android won't force-stop a device-owner app, so "until it restarts"
+can mean forever. "Exit kiosk" is therefore a ten-minute pause that ends
+itself.
+
+**The printer's app is the worst part of the printer.** It's a GB03, one of
+the hundreds of identical "cat printers". Its protocol has long since been
+worked out by other people, so the tablet talks to it directly:
+
+```
+51 78 <cmd> 00 <len> 00 <data…> <crc8(data)> ff    → characteristic ae01
+```
+
+Images go out one 384-pixel row at a time, 48 bytes, least significant bit
+leftmost. The printer asks you to slow down on `ae02`. The page draws each
+receipt on a canvas, so a receipt is just HTML-quality typography squeezed
+through a heating element. `tools/catprint.py` is the same driver in Python,
+used to prove the protocol from a laptop before any Kotlin was written.
+
+## What's on it
+
+| | |
+|---|---|
+| **Pictures** | Paintings from the gallery, never cropped, captioned like a wall label. Tap once for the speaker's controls and tap anywhere else for the dashboard. |
+| **Week** | Seven days from Home Assistant calendars, colour per calendar, each day's weather. |
+| **Shopping** | Tick things off and they return as one-tap "bought before" buttons. **×** removes mistakes, with undo. Prints. |
+| **To do** | Every section of the todo app as tabs, Home and Kids first, with done-before suggestions. |
+| **Pocket** | Balance and saving goals per kid. Kids tick their own chores, and a parent PIN adds the day. Prints a receipt. |
+| **Music** | The kitchen Sonos through Home Assistant, with favourites and a volume cap. |
+| **Busy** | Any Home Assistant sensor, e.g. the Mac's mic or camera in use. |
+
+The page reloads itself after a deploy. It wakes the screen when the busy
+banner or a kitchen occupancy sensor turns on, and shows a battery gauge only
+when someone has unplugged it.
+
+## Running it
 
 ```sh
-cd server
-cp deploy.env.example deploy.env   # fill in
+cd server && cp deploy.env.example deploy.env    # fill in
 docker compose up -d
 ```
 
-Behaviour: after 90 s untouched, the dashboard returns to the pictures. The page switches to
-a dark theme from 20:00 to 07:00. Inside the kiosk app, the page listens for
-`kiosk` events (`asleep` / `awake`) and pauses the slideshow while the screen is dimmed.
-Open `/#dash` to start on the dashboard rather than the pictures.
+The tablet side, including provisioning and the printer, is in
+[android/README.md](android/README.md).
+
+## Things worth knowing
+
+- The printer powers itself off when idle, charging or not. The app pings it
+  every 20 seconds in the hope that counts as busy, and otherwise says
+  "press its power button".
+- Pocket-money days are set with the pocket app's explicit `edit` call,
+  never its toggle. A toggle in that app is how a bought Minecraft book once
+  quietly refunded itself.
+- Wireless debugging survives until the next reboot. A Mac the tablet already
+  trusts over USB can connect without pairing.
