@@ -11,7 +11,7 @@ Home Assistant they already have and a spare tablet.
 |---|---|---|
 | Home Assistant | calendar, busy sensors, music, wake sensor | Usually: it's the audience. |
 | open-meteo | weather | Yes, free, no key. |
-| [frame-art](https://github.com/No1089/frame-art) | the paintings | Public and dockerable, but another thing to run. |
+| [frame-art](https://github.com/No1089/frame-art) | the paintings | Public, but it runs as systemd units on a Debian box; no container yet. |
 | the todo app | shopping list, to-do sections, Particle printing | No: private, personal. |
 | the pocket-money app | balances and goals | No: private, personal. |
 | a reverse proxy with TLS | the tablet's URL | Varies. Plain HTTP on a LAN is acceptable for a kiosk. |
@@ -63,8 +63,10 @@ HA to-do list get the kitchen list for free.
 Three sources the slideshow can already mix, or nearly: the frame-art API, an
 immich album (built, needs a key), and a plain folder of images mounted into
 the container (not built, ten lines). An iCloud Shared Album is on the list.
-frame-art stays the nicest option, and it's a public repo with its own
-container, so the doc just has to say so.
+frame-art stays the nicest option, but today it's five systemd units on a
+Debian box. A Dockerfile for it, the fetch-and-prepare pipeline on a timer
+plus the web gallery, is a small addition to that repo; then it's one more
+`docker run` beside Hearth, with the library in a volume.
 
 ### 4. A Home Assistant add-on (medium)
 
