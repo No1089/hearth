@@ -12,6 +12,7 @@ to-dos, office "busy" banner). This server only aggregates; it owns no data:
 - busy      → Home Assistant binary sensors (any `on` = busy)
 - slideshow → frame-art gallery JSON + an immich album (proxied, key stays here)
 - weather   → open-meteo
+- music     → one Home Assistant media_player (the kitchen Sonos) + its favourites
 """
 
 import json, os, random, threading, time, urllib.error, urllib.parse, urllib.request
@@ -40,6 +41,8 @@ ART_URL          = env('ART_URL').rstrip('/')
 IMMICH_URL       = env('IMMICH_URL').rstrip('/')
 IMMICH_API_KEY   = env('IMMICH_API_KEY')
 IMMICH_ALBUM_IDS = [a.strip() for a in env('IMMICH_ALBUM_IDS').split(',') if a.strip()]
+MUSIC_ENTITY     = env('MUSIC_ENTITY')
+MUSIC_MAX_VOLUME = float(env('MUSIC_MAX_VOLUME', '0.6'))
 WEATHER_LAT      = env('WEATHER_LAT')
 WEATHER_LON      = env('WEATHER_LON')
 TIMEZONE         = env('TZ', 'UTC')
@@ -101,6 +104,8 @@ def api_config():
         'hasCalendar': bool(HA_URL and HA_TOKEN and HA_CALENDARS),
         'hasBusy': bool(HA_URL and HA_TOKEN and HA_BUSY_ENTITIES),
         'hasWeather': bool(WEATHER_LAT and WEATHER_LON),
+        'hasMusic': bool(HA_URL and HA_TOKEN and MUSIC_ENTITY),
+        'musicMaxVolume': MUSIC_MAX_VOLUME,
     })
 
 # ── busy + weather (polled every few seconds) ────────────────────────────────
@@ -329,6 +334,112 @@ def api_photo(asset_id):
     with urllib.request.urlopen(req, timeout=20) as r:
         body, ctype = r.read(), r.headers.get('Content-Type', 'image/jpeg')
     return Response(body, content_type=ctype, headers={'Cache-Control': 'public, max-age=86400'})
+
+# ── music (kitchen speaker via Home Assistant) ───────────────────────────────
+
+def ha_service(domain, service, data):
+    return http_json(f'{HA_URL}/api/services/{domain}/{service}', 'POST', data,
+                     headers={'Authorization': f'Bearer {HA_TOKEN}'})
+
+def ha_ws(messages):
+    """Run a few commands over HA's websocket API (media browsing has no REST endpoint)."""
+    from websockets.sync.client import connect
+    ws_url = HA_URL.replace('http', 'ws', 1) + '/api/websocket'
+    out = []
+    with connect(ws_url, open_timeout=8, close_timeout=2) as ws:
+        ws.recv()
+        ws.send(json.dumps({'type': 'auth', 'access_token': HA_TOKEN}))
+        if json.loads(ws.recv()).get('type') != 'auth_ok':
+            raise RuntimeError('HA websocket auth failed')
+        for n, msg in enumerate(messages, 1):
+            ws.send(json.dumps({**msg, 'id': n}))
+            r = json.loads(ws.recv(timeout=10))
+            if not r.get('success'):
+                raise RuntimeError(r.get('error'))
+            out.append(r['result'])
+    return out
+
+def _favourites():
+    """Sonos favourites, flattened across the Albums / Playlists / Radio… folders."""
+    def browse(t, i):
+        return ha_ws([{'type': 'media_player/browse_media', 'entity_id': MUSIC_ENTITY,
+                       'media_content_type': t, 'media_content_id': i}])[0]
+    favs = []
+    for folder in browse('favorites', '').get('children') or []:
+        kids = [folder] if folder.get('can_play') else (browse(folder['media_content_type'], folder['media_content_id']).get('children') or [])
+        for k in kids:
+            if k.get('can_play'):
+                favs.append({'id': k['media_content_id'], 'type': k['media_content_type'],
+                             'title': k['title'], 'kind': folder['title'],
+                             'thumb': k.get('thumbnail') if (k.get('thumbnail') or '').startswith('https://') else None})
+    return favs
+
+def _music():
+    st = ha(f'/api/states/{MUSIC_ENTITY}')
+    a = st.get('attributes', {})
+    return {'state': st.get('state'), 'name': a.get('friendly_name'),
+            'title': a.get('media_title'), 'artist': a.get('media_artist'),
+            'album': a.get('media_album_name'), 'volume': a.get('volume_level'),
+            'muted': a.get('is_volume_muted'), 'source': a.get('source'),
+            'art': f"/api/music/art?v={urllib.parse.quote(a['entity_picture'])}" if a.get('entity_picture') else None}
+
+def _music_required():
+    if not (HA_URL and HA_TOKEN and MUSIC_ENTITY):
+        abort(404)
+
+@app.route('/api/music')
+def api_music():
+    _music_required()
+    try:
+        return jsonify(cached('music', 1.5, _music))
+    except Exception as e:
+        return jsonify({'state': 'unavailable', 'error': str(e)}), 502
+
+@app.route('/api/music/favourites')
+def api_music_favourites():
+    _music_required()
+    try:
+        return jsonify(cached('favourites', 600, _favourites))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 502
+
+@app.route('/api/music/art')
+def api_music_art():
+    # only the speaker's own artwork proxy, which needs the HA token
+    _music_required()
+    path = request.args.get('v', '')
+    if not path.startswith(f'/api/media_player_proxy/{MUSIC_ENTITY}'):
+        abort(404)
+    req = urllib.request.Request(f'{HA_URL}{path}', headers={'Authorization': f'Bearer {HA_TOKEN}'})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            body, ctype = r.read(), r.headers.get('Content-Type', 'image/jpeg')
+    except urllib.error.URLError:
+        abort(404)
+    return Response(body, content_type=ctype, headers={'Cache-Control': 'public, max-age=3600'})
+
+@app.route('/api/music/<action>', methods=['POST'])
+def api_music_action(action):
+    _music_required()
+    body = request.json or {}
+    ent = {'entity_id': MUSIC_ENTITY}
+    if action in ('play', 'pause', 'play_pause', 'next', 'previous'):
+        svc = {'play': 'media_play', 'pause': 'media_pause', 'play_pause': 'media_play_pause',
+               'next': 'media_next_track', 'previous': 'media_previous_track'}[action]
+        ha_service('media_player', svc, ent)
+    elif action == 'volume':
+        level = max(0.0, min(MUSIC_MAX_VOLUME, float(body.get('level', 0))))
+        ha_service('media_player', 'volume_set', {**ent, 'volume_level': round(level, 2)})
+    elif action == 'favourite':
+        fav = next((f for f in cached('favourites', 600, _favourites) if f['id'] == body.get('id')), None)
+        if not fav:
+            abort(404)
+        ha_service('media_player', 'play_media', {**ent, 'media_content_type': fav['type'],
+                                                  'media_content_id': fav['id']})
+    else:
+        abort(404)
+    invalidate('music')
+    return jsonify({'ok': True})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)

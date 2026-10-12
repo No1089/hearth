@@ -7,6 +7,6 @@ services:
       - ./app.py:/app/app.py:ro
       - ./static:/app/static:ro
     working_dir: /app
-    command: sh -c "pip install flask --quiet --root-user-action=ignore && python app.py"
+    command: sh -c "pip install flask websockets --quiet --root-user-action=ignore && python app.py"
     env_file: deploy.env
     restart: unless-stopped
