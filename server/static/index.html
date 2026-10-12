@@ -8,7 +8,7 @@
 <style>
 :root {
   --bg: #f6f1e8; --panel: #fffdf8; --ink: #2a2622; --dim: #7a7166; --faint: #b9b0a3;
-  --line: #e7dfd2; --accent: #2f6f62; --accent-ink: #fff; --busy: #d93a2b;
+  --line: #e7dfd2; --accent: #2f6f62; --accent-ink: #fff; --busy: #e1140a;
   --chip: #efe7da; --shadow: 0 1px 2px rgba(60,40,20,.08), 0 4px 14px rgba(60,40,20,.06);
   --c1: #e4572e; --c2: #2f80a8; --c3: #8a5cc2; --c4: #3c9d5d; --c5: #d8a01e; --c6: #c2477f;
 }
@@ -28,11 +28,12 @@ svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2
 .hidden { display: none !important; }
 
 /* ── busy banner (both modes) ─────────────────────────── */
-#busy { position: fixed; z-index: 50; left: 50%; top: 14px; transform: translate(-50%, -250%);
-  transition: transform .5s cubic-bezier(.2,.9,.3,1.2); background: var(--busy); color: #fff;
-  border-radius: 999px; padding: .55em 1.3em .55em 1em; display: flex; align-items: center; gap: .6em;
-  font-weight: 700; font-size: 1.25rem; box-shadow: 0 6px 24px rgba(217,58,43,.45); white-space: nowrap; }
-body.busy #busy { transform: translate(-50%, 0); }
+#busy { position: fixed; z-index: 50; right: 16px; top: 16px; transform: translateY(-260%);
+  transition: transform .5s cubic-bezier(.2,.9,.3,1.2); background: #e1140a; color: #fff;
+  border-radius: 999px; padding: .6em 1.4em .6em 1.1em; display: flex; align-items: center; gap: .65em;
+  font-weight: 800; font-size: 1.65rem; box-shadow: 0 8px 30px rgba(225,20,10,.5); white-space: nowrap;
+  pointer-events: none; }
+body.busy #busy { transform: translateY(0); }
 #busy .dot { width: .7em; height: .7em; border-radius: 50%; background: #fff; animation: pulse 1.6s infinite; }
 #busy small { font-weight: 500; opacity: .85; font-size: .75em; }
 @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.75); } }
