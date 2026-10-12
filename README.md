@@ -12,7 +12,8 @@ Two parts:
 - **`server/`** is a small Flask app plus one page. It owns no data: lists come
   from the todo app, the calendar, busy state and speaker from Home Assistant,
   balances from the pocket-money app, and pictures from the
-  [frame-art](https://github.com/No1089/frame-art) gallery.
+  [frame-art](https://github.com/No1089/frame-art) gallery through its
+  [JSON API](https://github.com/No1089/frame-art#api) (`/api/works`, `/img/<id>`).
 - **`android/`** is a home-made replacement for Fully Kiosk Browser. It runs a
   full-screen WebView, locks the tablet to it, wakes on camera motion and
   drives the printer.
