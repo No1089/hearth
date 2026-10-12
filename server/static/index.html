@@ -687,6 +687,7 @@ $$('.listview').forEach(sec => {
   });
   $('.print', sec)?.addEventListener('click', async () => {
     if (!lists[kind]?.items.length) { toast('The list is empty'); return; }
+    if (blePrinter()) { printLocal(shoppingReceipt(lists[kind].items)); return; }
     try {
       const r = await api(`/api/list/${kind}/print`, { method: 'POST' });
       toast(r.ok ? 'Printing…' : `Printer: ${r.result}`);
@@ -768,6 +769,7 @@ $('#pocket-kids').addEventListener('click', async e => {
   const pr = e.target.closest('.kprint');
   if (pr) {
     const kid = pocket.kids.find(k => k.id === pr.dataset.kid);
+    if (blePrinter()) { printLocal(pocketReceipt(kid)); return; }
     toast(`Printing ${kid.name}'s pocket money…`);
     try {
       const r = await api(`/api/pocket/${kid.id}/print`, { method: 'POST', body: {} });
@@ -906,6 +908,77 @@ $('#fav-grid').addEventListener('click', async e => {
   toast(`Playing ${f.title}`);
   try { await api('/api/music/favourite', { method: 'POST', body: { id: f.id } }); } catch { toast("Couldn't reach the speaker"); }
   setTimeout(loadMusic, 1500);
+});
+
+/* ── receipts for the Bluetooth printer (384 px wide, drawn here, printed by the kiosk app) ── */
+const RW = 384, FONT = 'Roboto, system-ui, sans-serif';
+function receipt(draw) {
+  const c = document.createElement('canvas'); c.width = RW; c.height = 4000;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, RW, c.height); g.fillStyle = '#000'; g.strokeStyle = '#000'; g.textBaseline = 'top';
+  const r = { g, y: 8,
+    font(px, w = 400) { g.font = `${w} ${px}px ${FONT}`; return this; },
+    wrap(text, maxW) {
+      const out = []; let line = '';
+      for (const word of String(text).split(/\s+/)) {
+        const t = line ? line + ' ' + word : word;
+        if (g.measureText(t).width > maxW && line) { out.push(line); line = word; } else line = t;
+      }
+      return line ? [...out, line] : out;
+    },
+    text(t, px, w = 400, { x = 8, align = 'left', gap = 6, maxW = RW - 16 } = {}) {
+      this.font(px, w); g.textAlign = align;
+      for (const ln of this.wrap(t, maxW)) { g.fillText(ln, align === 'center' ? RW / 2 : align === 'right' ? RW - 8 : x, this.y); this.y += px + gap; }
+      g.textAlign = 'left'; return this;
+    },
+    row(left, right, px = 22, w = 400) {          // "label ........ value"
+      this.font(px, w); g.textAlign = 'right'; g.fillText(right, RW - 8, this.y);
+      const rw = g.measureText(right).width; g.textAlign = 'left';
+      const l = this.wrap(left, RW - 32 - rw)[0] || ''; g.fillText(l, 8, this.y); this.y += px + 8; return this;
+    },
+    rule(dashed = true) { g.setLineDash(dashed ? [6, 5] : []); g.lineWidth = 2; g.beginPath(); g.moveTo(8, this.y + 6); g.lineTo(RW - 8, this.y + 6); g.stroke(); g.setLineDash([]); this.y += 16; return this; },
+    box(t, ticked, px = 26) {
+      this.font(px); const s = px - 4;
+      g.lineWidth = 3; g.strokeRect(10, this.y + 2, s, s); if (ticked) g.fillRect(14, this.y + 6, s - 8, s - 8);
+      const lines = this.wrap(t, RW - 30 - s);
+      lines.forEach((ln, i) => g.fillText(ln, 22 + s, this.y + i * (px + 4)));
+      this.y += lines.length * (px + 4) + 10; return this;
+    },
+    bar(pct) { g.lineWidth = 2; g.strokeRect(8, this.y, RW - 16, 16); g.fillRect(8, this.y, (RW - 16) * Math.min(1, Math.max(0, pct / 100)), 16); this.y += 26; return this; },
+    space(h = 10) { this.y += h; return this; },
+  };
+  draw(r);
+  r.space(6).text(new Date().toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), 18, 400, { align: 'center' });
+  const out = document.createElement('canvas'); out.width = RW; out.height = r.y + 8;
+  out.getContext('2d').drawImage(c, 0, 0);
+  return out.toDataURL('image/png');
+}
+function shoppingReceipt(items) {
+  return receipt(r => {
+    r.text('Shopping', 40, 800, { align: 'center' }).rule();
+    items.forEach(i => r.box(i.text, false));
+  });
+}
+function pocketReceipt(k) {
+  return receipt(r => {
+    r.text(k.name, 40, 800, { align: 'center' }).text(euro(k.balance), 56, 800, { align: 'center', gap: 4 });
+    r.text(`${k.daysThisWeek} day${k.daysThisWeek === 1 ? '' : 's'} earned this week`, 20, 400, { align: 'center' }).rule();
+    k.goals.forEach(gl => { r.row(gl.name, `${euro(gl.balance)} / ${euro(gl.amount)}`, 22, 700); r.bar(gl.pct || 0); });
+    if (k.chores.length) { r.space(4).text("Today's chores", 22, 700); k.chores.forEach((c, i) => r.box(c, k.ticked.includes(i), 24)); }
+    if (k.recent.length) { r.rule().text('Recent', 22, 700); k.recent.forEach(m => r.row(m.name, (m.amount > 0 ? '+' : '−') + euro(Math.abs(m.amount)), 20)); }
+  });
+}
+
+/* Bluetooth printer in the kiosk app, if there is one */
+function blePrinter() {
+  try { const st = JSON.parse(window.Kiosk?.printerStatus?.() || 'null'); return st && st.enabled ? st : null; } catch { return null; }
+}
+function printLocal(dataUrl) {
+  const r = window.Kiosk.printImage(dataUrl);
+  toast(r === 'queued' ? 'Printing…' : `Printer: ${r}`);
+}
+window.addEventListener('kiosk', e => {
+  if (e.detail?.printer === 'error') toast(e.detail.message || 'Printing failed');
 });
 
 let toastTimer, toastUndo = null;

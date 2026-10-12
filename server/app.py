@@ -18,7 +18,7 @@ to-dos, office "busy" banner). This server only aggregates; it owns no data:
 """
 
 import json, os, random, threading, time, urllib.error, urllib.parse, urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
@@ -360,6 +360,10 @@ def _save_chores(c):
 def _today():
     return datetime.now().date().isoformat()
 
+def _week_start(today):
+    t = datetime.fromisoformat(today).date()
+    return (t - timedelta(days=t.weekday())).isoformat()
+
 def _pocket_view():
     d = http_json(f'{POCKET_URL}/api/data')
     c = _load_chores()
@@ -371,7 +375,12 @@ def _pocket_view():
         goals = [{'name': g['name'], 'amount': g.get('amount'), 'balance': g.get('balance'),
                   'pct': g.get('goal_pct'), 'eta': g.get('eta')}
                  for g in k.get('goals', []) if not g.get('completed') and g.get('pct')]
-        kids.append({'id': k['id'], 'name': k['name'], 'balance': k.get('balance'),
+        moves = sorted([{'name': x['name'], 'amount': x['amount'], 'date': x['date']} for x in k.get('additions', [])] +
+                       [{'name': x['name'], 'amount': -x['amount'], 'date': x['date']} for x in k.get('deductions', [])],
+                       key=lambda x: x['date'], reverse=True)[:5]
+        kids.append({'id': k['id'], 'name': k['name'], 'balance': k.get('balance'), 'recent': moves,
+                     'daysThisWeek': sum(1 for ds, v in d.get('days', {}).get(k['id'], {}).items()
+                                         if v.get('done') and ds >= _week_start(today)),
                      'rate': k.get('default_rate'), 'goals': goals,
                      'workDay': datetime.fromisoformat(today).weekday() in k.get('work_days', [0, 1, 2, 3, 4]),
                      'credited': bool(day.get('done')),
