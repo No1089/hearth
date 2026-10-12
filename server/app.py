@@ -439,6 +439,18 @@ def api_pocket_set_chores(kid_id):
         _save_chores(c)
     return jsonify(_pocket_view())
 
+@app.route('/api/pocket/<kid_id>/print', methods=['POST'])
+def api_pocket_print(kid_id):
+    """Kid's receipt (balance, goals, recent spending) on the kitchen printer, via the pocket app."""
+    _pocket_required()
+    if not any(k['id'] == kid_id for k in http_json(f'{POCKET_URL}/api/data')['kids']):
+        abort(404)
+    try:
+        r = http_json(f'{POCKET_URL}/api/kid/{kid_id}/print', 'POST', {}, timeout=20)
+    except urllib.error.HTTPError as e:
+        return jsonify({'ok': False, 'error': f'pocket app: HTTP {e.code}'}), 502
+    return jsonify({'ok': bool(r.get('ok')), 'error': r.get('error')})
+
 @app.route('/api/pocket/pin', methods=['POST'])
 def api_pocket_pin():
     """Lets the page check a PIN before opening the chore editor."""

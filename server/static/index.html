@@ -160,6 +160,7 @@ main { position: relative; min-height: 0; padding: .3em 1.2em 1.1em .2em; }
 .kid-head { display: flex; align-items: baseline; gap: .6em; }
 .kid-head h2 { font-size: 1.4rem; }
 .kid-head .bal { margin-left: auto; font-size: 1.9rem; font-weight: 300; letter-spacing: -.02em; }
+.kid-head .kprint { margin-left: -.3em; }
 .kid-head .gear { width: 2em; height: 2em; border-radius: 50%; display: grid; place-items: center; color: var(--faint); align-self: center; }
 .goal { font-size: .85rem; }
 .goal .gl { display: flex; justify-content: space-between; color: var(--dim); margin-bottom: .25em; }
@@ -744,7 +745,7 @@ function renderPocket() {
       : `<div class="none">No chores yet — tap ⚙ to add some.</div>`;
     const foot = k.credited ? `<div class="credited">✓ Today's ${euro(k.rate)} is in</div>`
       : `<button class="btn credit" data-kid="${esc(k.id)}">${icon('i-plus')} Add today · ${euro(k.rate)}${all ? ` <small style="opacity:.75;font-weight:500">(${done}/${all} done)</small>` : ''}</button>`;
-    return `<div class="kid"><div class="kid-head"><h2>${esc(k.name)}</h2><span class="bal">${euro(k.balance)}</span><button class="gear" data-kid="${esc(k.id)}" aria-label="Edit chores">${icon('i-gear')}</button></div>${goals}<div class="chores"><div class="lbl">Today's chores</div>${chores}</div>${foot}</div>`;
+    return `<div class="kid"><div class="kid-head"><h2>${esc(k.name)}</h2><span class="bal">${euro(k.balance)}</span><button class="gear kprint" data-kid="${esc(k.id)}" aria-label="Print">${icon('i-print')}</button><button class="gear" data-kid="${esc(k.id)}" aria-label="Edit chores">${icon('i-gear')}</button></div>${goals}<div class="chores"><div class="lbl">Today's chores</div>${chores}</div>${foot}</div>`;
   }).join('');
 }
 $('#pocket-kids').addEventListener('click', async e => {
@@ -762,6 +763,16 @@ $('#pocket-kids').addEventListener('click', async e => {
     const pin = await askPin(`Add today for ${kid.name}?${left > 0 ? ` (${left} chore${left > 1 ? 's' : ''} not ticked)` : ''}`,
       p => api(`/api/pocket/${kid.id}/credit`, { method: 'POST', body: { pin: p } }).then(d => { loadPocket(d); return true; }));
     if (pin) toast(`${euro(kid.rate)} added for ${kid.name} 🎉`);
+    return;
+  }
+  const pr = e.target.closest('.kprint');
+  if (pr) {
+    const kid = pocket.kids.find(k => k.id === pr.dataset.kid);
+    toast(`Printing ${kid.name}'s pocket money…`);
+    try {
+      const r = await api(`/api/pocket/${kid.id}/print`, { method: 'POST', body: {} });
+      if (!r.ok) toast(`Printer: ${r.error || 'no answer'}`);
+    } catch { toast("Couldn't reach the printer"); }
     return;
   }
   const gear = e.target.closest('.gear');
