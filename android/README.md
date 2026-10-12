@@ -110,8 +110,10 @@ keyguard, clears the HOME override and calls `clearDeviceOwnerApp`. Then:
 adb uninstall dev.homekiosk
 ```
 
-**Exit kiosk (stop lock task)** only suspends the lock until the app restarts (handy for reaching
-Android settings via the status bar / *Open Android settings*). A factory reset also removes it.
+**Exit kiosk (stop lock task)** pauses the lock for 10 minutes (handy for reaching Android
+settings via the status bar / *Open Android settings*); it re-locks on its own once the pause is
+over and the kiosk is back in front. A device-owner app can't be force-stopped, so don't rely on
+a restart to re-lock. A factory reset also removes it.
 
 ## HTTP API
 

@@ -17,7 +17,9 @@ object KioskPolicy {
     private const val TAG = "KioskPolicy"
 
     /** Session flag set by "Exit kiosk" in Settings so we don't immediately re-lock. */
-    @Volatile var lockSuspended = false
+    /** "Exit kiosk" pauses the lock until this time (elapsedRealtime); it re-locks by itself. */
+    @Volatile private var lockSuspendedUntil = 0L
+    const val LOCK_PAUSE_MS = 10 * 60_000L
 
     fun dpm(ctx: Context) = ctx.getSystemService(DevicePolicyManager::class.java)
 
@@ -63,14 +65,14 @@ object KioskPolicy {
 
     /** Enters lock task only when device owner (otherwise Android would show screen pinning). */
     fun maybeStartLockTask(activity: Activity) {
-        if (lockSuspended || !isDeviceOwner(activity)) return
+        if (android.os.SystemClock.elapsedRealtime() < lockSuspendedUntil || !isDeviceOwner(activity)) return
         if (!dpm(activity)!!.isLockTaskPermitted(activity.packageName)) return
         if (isInLockTask(activity)) return
         try { activity.startLockTask() } catch (e: Exception) { Log.w(TAG, "startLockTask", e) }
     }
 
-    fun stopLockTask(activity: Activity) {
-        lockSuspended = true
+    fun stopLockTask(activity: Activity, pauseMs: Long = Long.MAX_VALUE / 2) {
+        lockSuspendedUntil = android.os.SystemClock.elapsedRealtime() + pauseMs
         try { if (isInLockTask(activity)) activity.stopLockTask() } catch (e: Exception) { Log.w(TAG, "stopLockTask", e) }
     }
 

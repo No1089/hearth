@@ -101,8 +101,8 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
             when (r.resultCode) {
                 SettingsActivity.RESULT_EXIT_KIOSK -> {
-                    KioskPolicy.stopLockTask(this)
-                    toast("Lock task stopped until the app restarts")
+                    KioskPolicy.stopLockTask(this, KioskPolicy.LOCK_PAUSE_MS)
+                    toast("Kiosk paused for 10 minutes")
                 }
                 SettingsActivity.RESULT_REMOVE_OWNER -> {
                     val ok = KioskPolicy.removeDeviceOwner(this)
@@ -379,6 +379,7 @@ class MainActivity : ComponentActivity() {
         override fun run() {
             val now = SystemClock.elapsedRealtime()
             applyBrightness() // picks up night-window transitions
+            if (resumed) KioskPolicy.maybeStartLockTask(this@MainActivity) // ends an "Exit kiosk" pause
             val timeoutMs = cfg.sleepTimeoutMin * 60_000L
             if (!asleep && timeoutMs > 0 && now - lastActivityElapsed >= timeoutMs) goToSleep("timer")
             if (pageLoadedElapsed > 0 && now - pageLoadedElapsed > MAX_PAGE_AGE_MS && !pageFailed) {
