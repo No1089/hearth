@@ -7,6 +7,15 @@ chores, and the kitchen speaker. A red "on a call" banner tells the kids when
 not to run into the office. It prints shopping lists and pocket-money receipts
 on a cheap Bluetooth thermal printer whose own app nobody could stand.
 
+![The pictures, with the on-a-call banner up](docs/busy-banner.jpg)
+
+![The shopping list, and the same list off the Bluetooth printer](docs/shopping-receipt.jpg)
+
+*Pierre-Auguste Renoir, [Acrobats at the Cirque Fernando](https://www.artic.edu/artworks/81558) (1879),
+Art Institute of Chicago, public domain, shown by way of
+[frame-art](https://github.com/No1089/frame-art). The shopping list is in
+Afrikaans, as it is in the kitchen.*
+
 Two parts:
 
 - **`server/`** is a small Flask app plus one page. It owns no data: lists come
