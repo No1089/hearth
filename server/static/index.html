@@ -536,7 +536,8 @@ function pollBattery() {
 /* kiosk app bridge (Android wrapper); harmless in a normal browser */
 function kiosk(cmd) { try { window.Kiosk?.[cmd]?.(); } catch {} }
 window.addEventListener('kiosk', e => {
-  asleep = e.detail?.state === 'asleep';
+  if (!e.detail?.state) return;                      // printer events carry `printer`, not `state`
+  asleep = e.detail.state === 'asleep';
   if (asleep) { showSaver(); clearTimeout(slideTimer); }
   else if (mode === 'saver') nextSlide(true);
 });
