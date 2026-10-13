@@ -5,7 +5,7 @@
 # (lists comma-joined, blanks skipped), so there is no run script. What each option
 # does is in DOCS.md.
 name: Hearth
-version: "1.0.0"
+version: "1.1.0"
 slug: hearth
 description: "Kitchen wall dashboard for a spare tablet: paintings, the week, shopping list, to-dos, pocket money, the speaker and an on-a-call banner"
 url: https://github.com/No1089/hearth
@@ -28,6 +28,13 @@ ports:
 ports_description:
   5007/tcp: Hearth web page (what the tablet opens)
 webui: "http://[HOST]:[PORT:5007]"
+# The Supervisor restarts the app when this stops answering.
+watchdog: "http://[HOST]:[PORT:5007]/api/config"
+# Home Assistant's media folder, read-only, so a folder of pictures in it can
+# be the slideshow (image_dir: /media/hearth). /data is always mapped and is
+# where the chores live.
+map:
+  - type: media
 # Not options here: LISTS (the add-on has no TODO_URL, so app.py always picks `ha`)
 # and TZ (the Supervisor sets it to Home Assistant's own time zone).
 options:
@@ -47,6 +54,7 @@ options:
   immich_url: ""
   immich_api_key: ""
   immich_album_ids: ""
+  image_dir: ""
   weather_lat: ""
   weather_lon: ""
 schema:
@@ -67,5 +75,6 @@ schema:
   immich_url: "str?"
   immich_api_key: "password?"
   immich_album_ids: "str?"
+  image_dir: "str?"
   weather_lat: "str?"
   weather_lon: "str?"

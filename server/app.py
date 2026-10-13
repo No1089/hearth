@@ -15,6 +15,7 @@ to-dos, office "busy" banner). This server only aggregates; it owns no data:
 - busy      → the Mac busy agent (POST /api/busy) and/or Home Assistant binary
               sensors (any `on` = busy)
 - slideshow → frame-art gallery JSON + an immich album (proxied, key stays here)
+              + a folder of pictures (IMAGE_DIR)
 - weather   → open-meteo
 - music     → one Home Assistant media_player (the kitchen Sonos) + its favourites
 """
@@ -86,6 +87,7 @@ ART_URL          = env('ART_URL').rstrip('/')
 IMMICH_URL       = env('IMMICH_URL').rstrip('/')
 IMMICH_API_KEY   = env('IMMICH_API_KEY')
 IMMICH_ALBUM_IDS = [a.strip() for a in env('IMMICH_ALBUM_IDS').split(',') if a.strip()]
+IMAGE_DIR        = env('IMAGE_DIR')                   # a folder of pictures; a subfolder's name is its caption
 MUSIC_ENTITY     = env('MUSIC_ENTITY')
 MUSIC_MAX_VOLUME = float(env('MUSIC_MAX_VOLUME', '0.6'))
 WEATHER_LAT      = env('WEATHER_LAT')
@@ -724,6 +726,24 @@ def _immich_assets():
                                 'place': place}
     return out
 
+IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.gif'}
+
+def _image_dir():
+    """Every picture under IMAGE_DIR, subfolders included. Shown like photos (landscapes fill
+    the screen), captioned with the subfolder's name. Hidden entries and a NAS's @eaDir skipped."""
+    root = Path(IMAGE_DIR)
+    out = []
+    for p in sorted(root.rglob('*')):
+        rel = p.relative_to(root)
+        if p.suffix.lower() not in IMAGE_EXTS or not p.is_file() \
+                or any(part[0] in '.@' for part in rel.parts):
+            continue
+        out.append({'kind': 'photo', 'src': '/api/image/' + urllib.parse.quote(rel.as_posix()),
+                    'taken': '', 'place': rel.parent.name})
+    if not out:
+        app.logger.warning('IMAGE_DIR %s: no pictures', IMAGE_DIR)
+    return out
+
 @app.route('/api/slides')
 def api_slides():
     slides = []
@@ -737,8 +757,19 @@ def api_slides():
             slides += list(cached('immich', 600, _immich_assets).values())
         except Exception:
             pass
+    if IMAGE_DIR:
+        try:
+            slides += cached('images', 600, _image_dir)
+        except Exception:
+            pass
     random.shuffle(slides)
     return jsonify(slides)
+
+@app.route('/api/image/<path:name>')
+def api_image(name):
+    if not IMAGE_DIR:
+        abort(404)
+    return send_from_directory(IMAGE_DIR, name, max_age=86400)   # refuses anything outside IMAGE_DIR
 
 @app.route('/api/photo/<asset_id>')
 def api_photo(asset_id):

@@ -11,9 +11,22 @@ As an add-on it owns almost nothing. Lists are Home Assistant to-do entities
 (the built-in Shopping List and Local To-do, or Google Tasks, Todoist and the
 like). The calendar, the busy and wake sensors and the speaker are Home
 Assistant entities. Weather comes from open-meteo, with no key. Pictures come
-from a [frame-art](https://github.com/No1089/frame-art) gallery or an immich
-album, if you have one. Only the chores live in the add-on's own data
-directory, which is backed up with the add-on.
+from a [frame-art](https://github.com/No1089/frame-art) gallery, an immich
+album, or a folder of pictures under Home Assistant's `/media`. Only the
+chores live in the app's own data directory, which is backed up with the app.
+
+## Install
+
+Settings → Apps (Add-ons, until recently) → Install app → ⋮ in the top right →
+Repositories, add `https://github.com/No1089/hearth`, and Hearth appears in
+the store. Install it, fill in the Configuration tab, start it. The image is
+built on the Home Assistant box the first time, which takes a minute or two on
+a Yellow.
+
+Without a public repository, the same folder works as a local app: copy
+`server/` to `/local_apps/hearth` (over the SSH app, or Samba, which still
+shows the share under its old name, `addons`) and it appears under "Local
+apps" in the store.
 
 ## Opening it
 
@@ -50,6 +63,7 @@ own, so neither is an option.
 | `immich_url` | *(blank)* | An immich server for the slideshow. The key stays in the add-on; the page never sees it. |
 | `immich_api_key` | *(blank)* | Its API key. |
 | `immich_album_ids` | *(blank)* | Album ids to show. |
+| `image_dir` | *(blank)* | A folder of pictures for the slideshow, e.g. `/media/hearth` (the app sees `/media` read-only). Subfolders are included, and a subfolder's name is the caption, so `/media/hearth/Cornwall 2024/` captions its pictures "Cornwall 2024". |
 | `weather_lat`, `weather_lon` | *(blank)* | Where the weather is for. Blank: no weather. |
 
 ## The on-a-call banner

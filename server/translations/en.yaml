@@ -1,0 +1,56 @@
+configuration:
+  ha_shopping_list:
+    name: Shopping list
+    description: The to-do entity shown as the shopping list (todo.shopping_list is the Shopping List integration's).
+  ha_todo_lists:
+    name: To-do lists
+    description: To-do entities shown as tabs, in this order. Empty shows every other to-do entity.
+  todo_first:
+    name: To-do tabs first
+    description: Entity ids to put first among the tabs, comma-separated.
+  todo_hide:
+    name: To-do tabs to hide
+    description: Entity ids to keep off the kitchen screen, comma-separated.
+  ha_calendars:
+    name: Calendars
+    description: "For the week view, comma-separated: entity|Label|#colour. Label and colour are optional."
+  ha_busy_entities:
+    name: Busy sensors
+    description: Any of these `on` shows the on-a-call banner. Comma-separated entity ids.
+  ha_wake_entities:
+    name: Wake sensors
+    description: Any of these `on` wakes the screen, e.g. a kitchen occupancy sensor.
+  busy_label:
+    name: Banner text
+    description: What the on-a-call banner says.
+  music_entity:
+    name: Speaker
+    description: A media_player, e.g. the kitchen Sonos. Blank hides the Music tab.
+  music_max_volume:
+    name: Volume cap
+    description: The loudest the page will set the speaker, 0 to 1.
+  pocket_url:
+    name: Pocket-money app
+    description: Its URL. Blank hides the Pocket tab.
+  pocket_pin:
+    name: Parent PIN
+    description: Credits a pocket-money day and edits chores.
+  art_url:
+    name: frame-art gallery
+    description: A frame-art gallery for the slideshow.
+  immich_url:
+    name: immich server
+    description: An immich server for the slideshow. The key stays in the app.
+  immich_api_key:
+    name: immich API key
+  immich_album_ids:
+    name: immich albums
+    description: Album ids to show, comma-separated.
+  image_dir:
+    name: Picture folder
+    description: A folder of pictures for the slideshow, e.g. /media/hearth. Subfolders are included and named in the caption.
+  weather_lat:
+    name: Latitude
+    description: Where the weather is for. Blank with longitude hides the weather.
+  weather_lon:
+    name: Longitude

@@ -1,8 +1,10 @@
 # Running Hearth without a homelab
 
-**Status (2026-10-12):** steps 1 (image), 2 (lists from HA) and 4 (add-on:
-`server/` is the add-on, `repository.yaml` at the repo root) are done. 3, 5 and
-6 are still plans.
+**Status (2026-10-13):** steps 1 (image), 2 (lists from HA), 3 (frame-art has
+a container and a compose file; `IMAGE_DIR` is a folder of pictures) and 4
+(add-on: `server/` is the add-on, `repository.yaml` at the repo root) are done.
+5 stays as it is. Of 6, the release workflow exists but ships unsigned builds
+until a keystore is in the repository's secrets.
 
 Hearth was built against one house: a Proxmox box with Caddy in front, a
 personal to-do app, a personal pocket-money app, and a Home Assistant Yellow.
@@ -64,13 +66,16 @@ HA to-do list get the kitchen list for free.
 
 ### 3. Pictures without frame-art (small)
 
-Three sources the slideshow can already mix, or nearly: the frame-art API, an
-immich album (built, needs a key), and a plain folder of images mounted into
-the container (not built, ten lines). An iCloud Shared Album is on the list.
-frame-art stays the nicest option, but today it's five systemd units on a
-Debian box. A Dockerfile for it, the fetch-and-prepare pipeline on a timer
-plus the web gallery, is a small addition to that repo; then it's one more
-`docker run` beside Hearth, with the library in a volume.
+Three sources the slideshow mixes: the frame-art API, an immich album (needs a
+key), and a plain folder of pictures, `IMAGE_DIR`, mounted into the container
+or, as an add-on, under Home Assistant's `/media`. A subfolder's name is the
+caption. An iCloud Shared Album is on the list.
+
+frame-art stays the nicest option, and it now runs as a container too:
+`docker compose up -d` in that repo starts the gallery and a scheduler that
+runs the monthly pipeline and the rotation check, with the library in one
+directory. Without a Frame TV it still fetches and renders, which is all
+Hearth needs. The image is `ghcr.io/no1089/frame-art`.
 
 ### 4. A Home Assistant add-on (medium)
 
