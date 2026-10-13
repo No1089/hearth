@@ -128,11 +128,11 @@ Or with no server at all, as a Home Assistant add-on: Settings → Apps (Add-ons
 until recently) → Install app → ⋮ → Repositories, add
 `https://github.com/No1089/hearth`, install Hearth, fill in the form. Lists then
 come from HA's own to-do entities, the add-on needs no token, and the tablet
-opens `http://<home-assistant-ip>:5007`. That needs this repository to be
-public; until it is, copy `server/` into the `local_apps` share of a Home
-Assistant OS box (`/local_apps/hearth` over the SSH add-on; Samba also still
-shows the share under its old name, `addons`) and it appears under "Local apps"
-in the app store. The options are in
+opens `http://<home-assistant-ip>:5007`. A fork, or a copy you're changing,
+goes in the `local_apps` share of a Home Assistant OS box instead
+(`/local_apps/hearth` over the SSH add-on; Samba also still shows the share
+under its old name, `addons`) and appears under "Local apps" in the app store.
+The options are in
 [server/DOCS.md](server/DOCS.md); how it got here is
 [docs/running-elsewhere.md](docs/running-elsewhere.md).
 
