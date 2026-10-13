@@ -48,7 +48,7 @@ class Config(context: Context) {
         set(v) = prefs.edit().putString(K_HTTP_TOKEN, v.trim()).apply()
 
     val haWebhook: String get() = prefs.getString(K_HA_WEBHOOK, "") ?: ""
-    val pin: String get() = prefs.getString(K_PIN, "1234") ?: "1234"
+    val pin: String get() = prefs.getString(K_PIN, DEFAULT_PIN) ?: DEFAULT_PIN
 
     /** Bluetooth "cat printer" (GB03 etc.). Address/name are filled in by the first scan. */
     var printerEnabled: Boolean
@@ -105,7 +105,15 @@ class Config(context: Context) {
         str("webhook", K_HA_WEBHOOK, "not an http(s) URL", ::isHttpUrl)
         // With `--ez remove_owner true` the pin extra authorises that action (MainActivity checks it
         // against the saved PIN) instead of changing the PIN.
-        if (!extras.containsKey(EXTRA_REMOVE_OWNER)) str("pin", K_PIN, "must be 4–8 digits", ::isPin)
+        // Changing the PIN by extra needs the current one (`--es old_pin`) once the default is gone;
+        // otherwise `--es pin X` followed by `--ez remove_owner true --es pin X` would need no secret.
+        if (!extras.containsKey(EXTRA_REMOVE_OWNER)) {
+            val current = pin
+            if (current == DEFAULT_PIN || extras.getString("old_pin")?.trim() == current)
+                str("pin", K_PIN, "must be 4–8 digits", ::isPin)
+            else if (extras.containsKey("pin"))
+                reject("pin", "needs --es old_pin <current PIN> once the default PIN has been changed")
+        }
         str("night_start", K_NIGHT_START, "must be HH:MM") { parseHm(it) != null }
         str("night_end", K_NIGHT_END, "must be HH:MM") { parseHm(it) != null }
         int("port", K_HTTP_PORT, 1024..65535)
@@ -141,6 +149,7 @@ class Config(context: Context) {
         const val K_HTTP_TOKEN = "http_token"
         const val K_HA_WEBHOOK = "ha_webhook"
         const val K_PIN = "pin"
+        const val DEFAULT_PIN = "1234"
         const val K_CAMERA_ASKED = "camera_asked"
         const val K_BT_ASKED = "bt_asked"
         const val K_PRINTER_ENABLED = "printer_enabled"

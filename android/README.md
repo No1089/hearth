@@ -100,6 +100,7 @@ key and should only go on a tablet that was provisioned with a debug build.
 ```sh
 adb install -r app/build/outputs/apk/release/app-release.apk
 adb shell dpm set-device-owner dev.homekiosk/.AdminReceiver
+adb shell appops set dev.homekiosk TURN_SCREEN_ON allow   # a remote wake can then turn a power-button-off display back on (Android 14+)
 
 # Headless config (all optional except url/token). --es values are strings; --ei/--ez also work.
 adb shell am start -n dev.homekiosk/.MainActivity \
@@ -162,6 +163,8 @@ adb install app/build/outputs/apk/release/app-release.apk
 adb shell dpm set-device-owner dev.homekiosk/.AdminReceiver   # still needs: no accounts on the device
 ```
 
+Once the default PIN has been changed, setting a new one by extra needs `--es old_pin <current>`
+as well, so an adb user can't reset the PIN and then use it.
 `remove_owner` is only honoured when the intent also carries the current PIN (here it checks the
 PIN rather than changing it); it is never saved. Preferences survive the uninstall only if you
 back them up yourself — expect to run the `am start … --es url …` provisioning line again.
