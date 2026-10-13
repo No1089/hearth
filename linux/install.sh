@@ -15,13 +15,16 @@ command -v pw-dump >/dev/null || echo "warning: pw-dump not found (package pipew
 cd "$(dirname "$0")"
 mkdir -p "$DIR" "$(dirname "$UNIT_FILE")"
 cp busy-agent.py "$DIR/busy-agent.py"
+# systemd splits ExecStart on spaces and honours double quotes, so a device
+# name with a space in it has to be quoted here or it arrives as three words.
+ARGS=""; for a in "$@"; do ARGS="$ARGS \"$a\""; done
 cat > "$UNIT_FILE" <<EOF
 [Unit]
 Description=Hearth busy agent
 After=default.target
 
 [Service]
-ExecStart=/usr/bin/env python3 $DIR/busy-agent.py $*
+ExecStart=/usr/bin/env python3 "$DIR/busy-agent.py"$ARGS
 Restart=always
 RestartSec=5
 

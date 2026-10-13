@@ -152,6 +152,9 @@ curl -s "http://192.0.2.10:2323/status?token=YOUR_TOKEN"
   (FLAG_KEEP_SCREEN_ON + STAY_ON_WHILE_PLUGGED_IN) and overrides window brightness itself.
 - If brightness 0 turns the backlight fully off or behaves oddly on this panel, raise
   *Asleep brightness* to 1–3 in Settings.
+- If the tablet is firewalled off the internet (recommended, see the main README), leave it a way
+  to set its clock: allow NTP, UDP 123 outbound, or the clock drifts, TLS certificates stop
+  validating and the page stops loading over https.
 
 ### Undoing device owner / uninstalling
 
