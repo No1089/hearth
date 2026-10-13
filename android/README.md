@@ -85,6 +85,15 @@ the properties file `assembleRelease` fails with a message saying so (it never p
 unsigned APK by accident). Release builds are not debuggable; debug builds use the default debug
 key and should only go on a tablet that was provisioned with a debug build.
 
+### Releases
+
+Pushing a tag `v*` runs `.github/workflows/android-release.yml`: unit tests, a debug build, and a
+GitHub release with the APK attached. It signs a release build only when the keystore is in the
+repository's secrets (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+`ANDROID_KEY_PASSWORD`); until then a release carries the debug APK only. Whether the key that owns
+the tablet belongs in GitHub is the question to answer first: anyone who can read those secrets can
+ship an update the tablet will accept.
+
 ## Provisioning the tablet
 
 1. **Protect battery** — it will be on the charger 24/7: Settings → Battery → (More battery settings) →

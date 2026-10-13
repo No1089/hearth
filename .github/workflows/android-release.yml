@@ -1,0 +1,78 @@
+# Builds the kiosk app for a tag and attaches the APK to a GitHub release, so
+# nobody has to install an Android SDK to get one.
+#
+# Signing is off until the repository has these secrets, and then it is on:
+#   ANDROID_KEYSTORE_BASE64   base64 of the release keystore (base64 -i hearth-release.jks)
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_ALIAS
+#   ANDROID_KEY_PASSWORD
+# Without them the release carries the debug build only, which installs on a
+# tablet that was provisioned with a debug build and nothing else. A
+# device-owner app is only ever updated by the key it was installed with, so
+# whether the keystore belongs in GitHub at all is a decision, not a default:
+# see android/README.md, "Release signing".
+name: android release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: gradle/actions/wrapper-validation@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-35" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: ./gradlew --no-daemon test
+
+      - name: Debug build
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Release build (only with the keystore in secrets)
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE" | base64 -d > hearth-release.jks
+          printf 'storeFile=hearth-release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
+          ./gradlew --no-daemon assembleRelease
+          rm -f hearth-release.jks keystore.properties
+
+      - name: Name the APKs after the tag
+        run: |
+          v="${GITHUB_REF_NAME}"
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk "out/hearth-kiosk-$v-debug.apk"
+          [ -f app/build/outputs/apk/release/app-release.apk ] \
+            && cp app/build/outputs/apk/release/app-release.apk "out/hearth-kiosk-$v.apk" || true
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: android/out/*.apk
+
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: android/out/*.apk
+          generate_release_notes: true
