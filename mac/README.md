@@ -55,10 +55,9 @@ Several sources may report; any one busy is busy.
 
 That is the whole protocol, so an equivalent for another operating system is a
 small script: find out whether a capture device is open, POST that every 30
-seconds. On Windows the registry keys under
-`HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam`
-and `\microphone` carry a `LastUsedTimeStop` of `0` for apps currently using
-the device. On Linux with PipeWire, `pw-dump` lists active streams.
+seconds. There is one for each: [windows/](../windows/README.md) reads the
+registry keys the privacy indicator uses, and [linux/](../linux/README.md)
+reads PipeWire's running capture streams and open `/dev/video*` devices.
 
 ## Install
 

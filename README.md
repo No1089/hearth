@@ -29,6 +29,8 @@ Two parts:
 - **`mac/`** is a small agent for the office Mac. It tells Hearth the moment a
   camera, or a microphone for more than a few seconds, is in use. How it knows,
   and the three-line protocol, are in [mac/README.md](mac/README.md).
+  [`windows/`](windows/README.md) and [`linux/`](linux/README.md) are the same
+  agent for an office that isn't a Mac.
 
 ## Why it exists
 
