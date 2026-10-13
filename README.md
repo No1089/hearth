@@ -161,7 +161,8 @@ agent and runs it at login. `--uninstall` removes it.
 
 ## Licence
 
-[MIT](LICENSE). Use it, change it, put it on your own wall, sell it if you
-can find a buyer; keep the copyright line. The paintings come from
+[PolyForm Noncommercial 1.0.0](LICENSE). Use it, change it, share it, put it
+on your own wall; not for money, and keep the notice line. It is not an OSI
+open-source licence, by that one clause. The paintings come from
 [frame-art](https://github.com/No1089/frame-art), which is AGPL, but Hearth
 only talks to it over HTTP, so that licence stops at that repository.
