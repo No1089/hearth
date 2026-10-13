@@ -158,3 +158,10 @@ agent and runs it at login. `--uninstall` removes it.
   to sleep mid-call doesn't leave the banner on all evening.
 - Wireless debugging survives until the next reboot. A Mac the tablet already
   trusts over USB can connect without pairing.
+
+## Licence
+
+[MIT](LICENSE). Use it, change it, put it on your own wall, sell it if you
+can find a buyer; keep the copyright line. The paintings come from
+[frame-art](https://github.com/No1089/frame-art), which is AGPL, but Hearth
+only talks to it over HTTP, so that licence stops at that repository.
