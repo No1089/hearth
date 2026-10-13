@@ -6,8 +6,9 @@ One page (static/index.html) with two modes: an idle slideshow (art gallery +
 an immich album) and a touch dashboard (week calendar, shopping list, family
 to-dos, office "busy" banner). This server only aggregates; it owns no data:
 
-- lists     → the todo app: `shopping` plus its other sections as to-dos; it also
-              drives the receipt printer
+- lists     → LISTS=todo: the todo app (`shopping` plus its other sections as
+              to-dos; it also drives the receipt printer), or LISTS=ha: Home
+              Assistant to-do entities (one shopping list + the rest as tabs)
 - pocket    → the pocket-money app (balances, goals); chores are kept here, and
               crediting a day needs the parent PIN
 - calendar  → Home Assistant calendar entities
@@ -30,9 +31,43 @@ STATIC = Path(__file__).parent / 'static'
 def env(name, default=''):
     return os.environ.get(name, default).strip()
 
+# ── add-on runtime (Home Assistant Supervisor) ───────────────────────────────
+# As an HA add-on the options live in /data/options.json: option `ha_shopping_list`
+# is env HA_SHOPPING_LIST, lists are comma-joined. Environment already set wins, so
+# the same image still runs from deploy.env. With a Supervisor token the add-on
+# talks to HA through the supervisor proxy and keeps its data in /data.
+
+def _load_addon_options(path):
+    try:
+        with open(path) as f:
+            opts = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return
+    for key, val in (opts if isinstance(opts, dict) else {}).items():
+        if isinstance(val, list):
+            val = ','.join(str(x) for x in val if str(x).strip())
+        if val is None or str(val).strip() == '':
+            continue
+        os.environ.setdefault(key.upper(), str(val))
+
+_load_addon_options(env('OPTIONS_FILE', '/data/options.json'))
+if env('SUPERVISOR_TOKEN'):
+    os.environ.setdefault('HA_URL', 'http://supervisor/core')
+    os.environ.setdefault('HA_TOKEN', env('SUPERVISOR_TOKEN'))
+    os.environ.setdefault('HA_WS_URL', 'ws://supervisor/core/websocket')
+    if os.path.isdir('/data'):
+        os.environ.setdefault('DATA_DIR', '/data')
+
 PORT             = int(env('PORT', '5007'))
+# lists: `todo` = the todo app at TODO_URL, `ha` = Home Assistant to-do entities
+LISTS            = env('LISTS').lower() or ('todo' if env('TODO_URL') else 'ha')
+if LISTS not in ('todo', 'ha'):
+    raise SystemExit(f'LISTS must be todo or ha, not {LISTS!r}')
 TODO_URL         = env('TODO_URL', 'http://localhost:5002').rstrip('/')
 SHOPPING_SECTION = env('SHOPPING_SECTION', 'shopping')
+HA_SHOPPING_LIST = env('HA_SHOPPING_LIST', 'todo.shopping_list')
+# to-do tabs in HA mode; empty = every other todo.* entity HA has
+HA_TODO_LISTS    = [x.strip() for x in env('HA_TODO_LISTS').split(',') if x.strip()]
 # to-do view: these sections first, then the rest of the todo app's sections in its order
 TODO_FIRST       = [x.strip() for x in env('TODO_FIRST', 'home,kids').split(',') if x.strip()]
 TODO_HIDE        = {x.strip() for x in env('TODO_HIDE').split(',') if x.strip()}
@@ -42,6 +77,7 @@ DATA_DIR         = Path(env('DATA_DIR', str(Path(__file__).parent / 'data')))
 HA_WAKE_ENTITIES = [e.strip() for e in env('HA_WAKE_ENTITIES').split(',') if e.strip()]
 HA_URL           = env('HA_URL').rstrip('/')
 HA_TOKEN         = env('HA_TOKEN')
+HA_WS_URL        = env('HA_WS_URL')                  # optional; else derived from HA_URL
 # calendar.kids|Kids|#e4572e,calendar.family|Family|#3b8ea5
 HA_CALENDARS     = [c for c in env('HA_CALENDARS').split(',') if c.strip()]
 HA_BUSY_ENTITIES = [e.strip() for e in env('HA_BUSY_ENTITIES').split(',') if e.strip()]
@@ -54,7 +90,7 @@ MUSIC_ENTITY     = env('MUSIC_ENTITY')
 MUSIC_MAX_VOLUME = float(env('MUSIC_MAX_VOLUME', '0.6'))
 WEATHER_LAT      = env('WEATHER_LAT')
 WEATHER_LON      = env('WEATHER_LON')
-TIMEZONE         = env('TZ', 'UTC')
+TIMEZONE         = env('TZ', 'UTC')                   # as an add-on the Supervisor sets TZ to HA's zone
 
 # ── tiny TTL cache ────────────────────────────────────────────────────────────
 _cache, _lock = {}, threading.Lock()
@@ -97,6 +133,16 @@ def http_json(url, method='GET', body=None, headers=None, timeout=8):
 def ha(path, timeout=8):
     return http_json(f'{HA_URL}{path}', headers={'Authorization': f'Bearer {HA_TOKEN}'}, timeout=timeout)
 
+def ha_service(domain, service, data, response=False):
+    """Call an HA service; response=True asks for its service_response (e.g. todo.get_items)."""
+    q = '?return_response' if response else ''
+    return http_json(f'{HA_URL}/api/services/{domain}/{service}{q}', 'POST', data,
+                     headers={'Authorization': f'Bearer {HA_TOKEN}'})
+
+def ha_title(ent):
+    """`todo.kids_chores` → `Kids Chores`, for entities without a friendly_name."""
+    return ent.split('.', 1)[-1].replace('_', ' ').title()
+
 # ── pages ─────────────────────────────────────────────────────────────────────
 
 @app.route('/')
@@ -118,6 +164,7 @@ def api_config():
         'musicMaxVolume': MUSIC_MAX_VOLUME,
         'hasPocket': bool(POCKET_URL),
         'pocketPinSet': bool(POCKET_PIN),
+        'lists': LISTS,
     })
 
 # ── busy + weather (polled every few seconds) ────────────────────────────────
@@ -228,7 +275,7 @@ def _parse_calendars():
     for spec in HA_CALENDARS:
         parts = [p.strip() for p in spec.split('|')]
         ent = parts[0]
-        label = parts[1] if len(parts) > 1 and parts[1] else ent.split('.', 1)[-1].replace('_', ' ').title()
+        label = parts[1] if len(parts) > 1 and parts[1] else ha_title(ent)
         color = parts[2] if len(parts) > 2 and parts[2] else None
         cals.append({'entity': ent, 'label': label, 'color': color})
     return cals
@@ -265,96 +312,246 @@ def api_calendar():
     except Exception as e:
         return jsonify({'error': str(e)}), 502
 
-# ── lists (backed by the todo app) ────────────────────────────────────────────
+# ── lists ─────────────────────────────────────────────────────────────────────
+# One shape for the page whichever backend holds the data: a list is
+# {items: [{id, text}], recent: [text]} where `recent` = ticked off before and not
+# on the list now (tap to re-add). `kind` is `shopping` or a to-do section id.
 
-def _todo_data():
-    return http_json(f'{TODO_URL}/api/data')
-
-def _section(kind):
-    """`shopping` or any todo-app section id the dashboard may touch."""
-    if kind == 'shopping':
-        return SHOPPING_SECTION
-    ids = {x['id'] for x in cached('todo-sections', 30, lambda: _todo_data()['sections'])}
-    if kind not in ids or kind in TODO_HIDE or kind == SHOPPING_SECTION:
-        abort(404)
-    return kind
-
-def _summarise(items, sec):
-    mine = [i for i in items if i.get('section_id') == sec]
-    open_items = [{'id': i['id'], 'text': i['text']} for i in mine if not i.get('done')]
-    done = sorted({i['text'] for i in mine if i.get('done')}, key=str.lower)
+def _shape(open_items, done_texts):
     open_texts = {i['text'].lower() for i in open_items}
     return {'items': open_items,
-            'recent': [t for t in done if t.lower() not in open_texts]}
+            'recent': [t for t in sorted(set(done_texts), key=str.lower) if t.lower() not in open_texts]}
 
-def _list(kind):
-    return _summarise(_todo_data()['items'], _section(kind))
+def _pinned_first(ids):
+    """TODO_FIRST in that order, then the rest as the backend orders them (stable)."""
+    order = {sid: n for n, sid in enumerate(TODO_FIRST)}
+    return sorted(ids, key=lambda sid: order.get(sid, len(order))), order
+
+class TodoAppLists:
+    """The todo app at TODO_URL: `shopping` is SHOPPING_SECTION, every other section is a tab."""
+
+    def _data(self):
+        return http_json(f'{TODO_URL}/api/data')
+
+    def _section(self, kind):
+        if kind == 'shopping':
+            return SHOPPING_SECTION
+        ids = {x['id'] for x in cached('todo-sections', 30, lambda: self._data()['sections'])}
+        if kind not in ids or kind in TODO_HIDE or kind == SHOPPING_SECTION:
+            abort(404)
+        return kind
+
+    @staticmethod
+    def _summarise(items, sec):
+        mine = [i for i in items if i.get('section_id') == sec]
+        return _shape([{'id': i['id'], 'text': i['text']} for i in mine if not i.get('done')],
+                      [i['text'] for i in mine if i.get('done')])
+
+    def one(self, kind):
+        return self._summarise(self._data()['items'], self._section(kind))
+
+    def todo(self):
+        d = self._data()
+        secs = {x['id']: x for x in d['sections'] if x['id'] != SHOPPING_SECTION and x['id'] not in TODO_HIDE}
+        ids, order = _pinned_first(list(secs))
+        return {'sections': [{'id': sid, 'label': secs[sid]['label'], 'pinned': sid in order,
+                              **self._summarise(d['items'], sid)} for sid in ids]}
+
+    def add(self, kind, text):
+        sec = self._section(kind)
+        if not text:
+            abort(400)
+        same = [i for i in self._data()['items']
+                if i.get('section_id') == sec and i['text'].lower() == text.lower()]
+        if any(not i.get('done') for i in same):
+            return self.one(kind)                         # already on the list
+        if same:                                          # bought before: un-tick it
+            http_json(f"{TODO_URL}/api/item/{same[0]['id']}/toggle", 'POST', {})
+        else:
+            http_json(f'{TODO_URL}/api/item', 'POST', {'section_id': sec, 'text': text})
+        return self.one(kind)
+
+    def _item(self, kind, item_id):
+        sec = self._section(kind)
+        item = next((i for i in self._data()['items']
+                     if i['id'] == item_id and i.get('section_id') == sec), None)
+        if not item:
+            abort(404)
+        return item
+
+    def done(self, kind, item_id, want):
+        if bool(self._item(kind, item_id).get('done')) != want:
+            http_json(f'{TODO_URL}/api/item/{item_id}/toggle', 'POST', {})
+        return self.one(kind)
+
+    def delete(self, kind, item_id):
+        self._item(kind, item_id)
+        http_json(f'{TODO_URL}/api/item/{item_id}', 'DELETE')
+        return self.one(kind)
+
+    def print(self, kind):
+        """The todo app drives the receipt printer."""
+        try:
+            return http_json(f'{TODO_URL}/api/print-section/{self._section(kind)}', 'POST', {}, timeout=15), 200
+        except urllib.error.HTTPError as e:
+            return {'ok': False, 'result': f'todo app: HTTP {e.code}'}, 502
+
+class NoEntity(OSError):
+    """An option names a to-do entity Home Assistant does not have. An OSError so
+    _upstream answers it with the same 502 JSON as any other backend failure."""
+
+class HaLists:
+    """Home Assistant to-do entities: HA_SHOPPING_LIST is `shopping`; the tabs are
+    HA_TODO_LISTS or, when that is empty, every other todo.* entity. Section ids are
+    the entity ids; item ids are HA's item uids."""
+
+    def _shopping(self):
+        """HA_SHOPPING_LIST, checked to exist (a minute's cache, like the tabs). Its
+        default only exists with the Shopping List integration, and todo.get_items on
+        a missing entity is a bare HTTP 500 from HA that names nothing."""
+        def fetch():
+            try:
+                ha(f'/api/states/{HA_SHOPPING_LIST}')
+            except urllib.error.HTTPError as e:
+                if e.code != 404:
+                    raise
+                app.logger.warning('HA_SHOPPING_LIST: no entity %s', HA_SHOPPING_LIST)
+                return False
+            return True
+        if not cached('ha-shopping-entity', 60, fetch):
+            raise NoEntity(f'HA has no to-do entity {HA_SHOPPING_LIST} (HA_SHOPPING_LIST)')
+        return HA_SHOPPING_LIST
+
+    def _labels(self):
+        """{entity_id: friendly_name} for the to-do tabs, in tab order; a minute's cache."""
+        def fetch():
+            if HA_TODO_LISTS:
+                states = []
+                for ent in HA_TODO_LISTS:
+                    try:
+                        states.append(ha(f'/api/states/{ent}'))
+                    except urllib.error.HTTPError as e:
+                        if e.code != 404:
+                            raise
+                        app.logger.warning('HA_TODO_LISTS: no entity %s', ent)
+            else:
+                # auto-discover: every todo.* entity except the shopping list; an entity named
+                # explicitly in HA_TODO_LISTS is shown even if it is also HA_SHOPPING_LIST
+                states = [s for s in ha('/api/states')
+                          if s['entity_id'].startswith('todo.') and s['entity_id'] != HA_SHOPPING_LIST]
+            return {s['entity_id']: (s.get('attributes') or {}).get('friendly_name') or ha_title(s['entity_id'])
+                    for s in states if s['entity_id'] not in TODO_HIDE}
+        return cached('ha-todo-lists', 60, fetch)
+
+    def _entity(self, kind):
+        if kind == 'shopping':
+            return self._shopping()
+        if kind not in self._labels():
+            abort(404)
+        return kind
+
+    def _items(self, ents):
+        """{entity_id: [{uid, summary, status}]} in one todo.get_items call."""
+        if not ents:
+            return {}
+        # Ask for both statuses explicitly: the `recent` suggestions and the un-tick in
+        # add() need the completed items, and HA documents needs_action as the default.
+        r = ha_service('todo', 'get_items', {'entity_id': ents, 'status': ['needs_action', 'completed']},
+                       response=True) or {}
+        return {ent: (r.get('service_response') or {}).get(ent, {}).get('items') or [] for ent in ents}
+
+    @staticmethod
+    def _summarise(items):
+        return _shape([{'id': i['uid'], 'text': i['summary']} for i in items if i.get('status') == 'needs_action'],
+                      [i['summary'] for i in items if i.get('status') == 'completed'])
+
+    def one(self, kind):
+        ent = self._entity(kind)
+        return self._summarise(self._items([ent])[ent])
+
+    def todo(self):
+        labels = self._labels()
+        ids, order = _pinned_first(list(labels))
+        items = self._items(ids)
+        return {'sections': [{'id': ent, 'label': labels[ent], 'pinned': ent in order,
+                              **self._summarise(items[ent])} for ent in ids]}
+
+    def add(self, kind, text):
+        ent = self._entity(kind)
+        if not text:
+            abort(400)
+        same = [i for i in self._items([ent])[ent] if (i.get('summary') or '').lower() == text.lower()]
+        if any(i.get('status') == 'needs_action' for i in same):
+            return self.one(kind)                         # already on the list
+        if same:                                          # bought before: un-tick it
+            ha_service('todo', 'update_item', {'entity_id': ent, 'item': same[0]['uid'], 'status': 'needs_action'})
+        else:
+            ha_service('todo', 'add_item', {'entity_id': ent, 'item': text})
+        return self.one(kind)
+
+    def _item(self, kind, item_id):
+        ent = self._entity(kind)
+        item = next((i for i in self._items([ent])[ent] if i.get('uid') == item_id), None)
+        if not item:
+            abort(404)
+        return ent, item
+
+    def done(self, kind, item_id, want):
+        ent, item = self._item(kind, item_id)
+        status = 'completed' if want else 'needs_action'
+        if item.get('status') != status:
+            ha_service('todo', 'update_item', {'entity_id': ent, 'item': item_id, 'status': status})
+        return self.one(kind)
+
+    def delete(self, kind, item_id):
+        ent, _ = self._item(kind, item_id)
+        ha_service('todo', 'remove_item', {'entity_id': ent, 'item': [item_id]})
+        return self.one(kind)
+
+    def print(self, kind):
+        self._entity(kind)
+        return {'ok': False, 'result': 'No printer in this mode'}, 200   # the tablet's own printer, if any
+
+lists = HaLists() if LISTS == 'ha' else TodoAppLists()
+
+def _upstream(fn):
+    """Backend errors (todo app or HA unreachable, HA refusing a call) → 502 JSON."""
+    try:
+        return jsonify(fn())
+    except OSError as e:                                  # URLError, HTTPError, timeouts
+        app.logger.warning('lists (%s): %s', LISTS, e)
+        return jsonify({'error': str(e)}), 502
 
 @app.route('/api/todo')
 def api_todo():
     """Every to-do section (not shopping) with its open items and done-before suggestions."""
-    try:
-        d = _todo_data()
-    except urllib.error.URLError as e:
-        return jsonify({'error': str(e)}), 502
-    secs = [x for x in d['sections'] if x['id'] != SHOPPING_SECTION and x['id'] not in TODO_HIDE]
-    order = {sid: n for n, sid in enumerate(TODO_FIRST)}
-    secs.sort(key=lambda x: order.get(x['id'], len(order)))   # stable: app order after the pinned ones
-    return jsonify({'sections': [{'id': x['id'], 'label': x['label'], 'pinned': x['id'] in order,
-                                  **_summarise(d['items'], x['id'])} for x in secs]})
+    return _upstream(lists.todo)
 
 @app.route('/api/list/<kind>')
 def api_list(kind):
-    try:
-        return jsonify(_list(kind))
-    except urllib.error.URLError as e:
-        return jsonify({'error': str(e)}), 502
+    return _upstream(lambda: lists.one(kind))
 
 @app.route('/api/list/<kind>', methods=['POST'])
 def api_list_add(kind):
-    sec = _section(kind)
     text = ' '.join(((request.json or {}).get('text') or '').split())[:120]
-    if not text:
-        abort(400)
-    items = _todo_data()['items']
-    same = [i for i in items if i.get('section_id') == sec and i['text'].lower() == text.lower()]
-    if any(not i.get('done') for i in same):
-        return jsonify(_list(kind))                       # already on the list
-    if same:                                              # bought before: un-tick it
-        http_json(f"{TODO_URL}/api/item/{same[0]['id']}/toggle", 'POST', {})
-    else:
-        http_json(f'{TODO_URL}/api/item', 'POST', {'section_id': sec, 'text': text})
-    return jsonify(_list(kind))
-
-def _item_in(kind, item_id):
-    sec = _section(kind)
-    return next((i for i in _todo_data()['items']
-                 if i['id'] == item_id and i.get('section_id') == sec), None)
+    return _upstream(lambda: lists.add(kind, text))       # 404 unknown list, then 400 empty text
 
 @app.route('/api/list/<kind>/<item_id>/done', methods=['POST'])
 def api_list_done(kind, item_id):
-    item = _item_in(kind, item_id)
-    if not item:
-        abort(404)
     want = bool((request.json or {}).get('done', True))
-    if bool(item.get('done')) != want:
-        http_json(f'{TODO_URL}/api/item/{item_id}/toggle', 'POST', {})
-    return jsonify(_list(kind))
+    return _upstream(lambda: lists.done(kind, item_id, want))
 
 @app.route('/api/list/<kind>/<item_id>', methods=['DELETE'])
 def api_list_delete(kind, item_id):
-    if not _item_in(kind, item_id):
-        abort(404)
-    http_json(f'{TODO_URL}/api/item/{item_id}', 'DELETE')
-    return jsonify(_list(kind))
+    return _upstream(lambda: lists.delete(kind, item_id))
 
 @app.route('/api/list/<kind>/print', methods=['POST'])
 def api_list_print(kind):
     try:
-        res = http_json(f'{TODO_URL}/api/print-section/{_section(kind)}', 'POST', {}, timeout=15)
-    except urllib.error.HTTPError as e:
-        return jsonify({'ok': False, 'result': f'todo app: HTTP {e.code}'}), 502
-    return jsonify(res)
+        body, status = lists.print(kind)
+    except OSError as e:
+        return jsonify({'ok': False, 'result': str(e)}), 502
+    return jsonify(body), status
 
 # ── pocket money (balances from the pocket app; chores kept here) ───────────
 
@@ -564,14 +761,10 @@ def api_photo(asset_id):
 
 # ── music (kitchen speaker via Home Assistant) ───────────────────────────────
 
-def ha_service(domain, service, data):
-    return http_json(f'{HA_URL}/api/services/{domain}/{service}', 'POST', data,
-                     headers={'Authorization': f'Bearer {HA_TOKEN}'})
-
 def ha_ws(messages):
     """Run a few commands over HA's websocket API (media browsing has no REST endpoint)."""
     from websockets.sync.client import connect
-    ws_url = HA_URL.replace('http', 'ws', 1) + '/api/websocket'
+    ws_url = HA_WS_URL or HA_URL.replace('http', 'ws', 1) + '/api/websocket'
     out = []
     with connect(ws_url, open_timeout=8, close_timeout=2) as ws:
         ws.recv()

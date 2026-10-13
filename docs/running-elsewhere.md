@@ -1,5 +1,9 @@
 # Running Hearth without a homelab
 
+**Status (2026-10-12):** steps 1 (image), 2 (lists from HA) and 4 (add-on:
+`server/` is the add-on, `repository.yaml` at the repo root) are done. 3, 5 and
+6 are still plans.
+
 Hearth was built against one house: a Proxmox box with Caddy in front, a
 personal to-do app, a personal pocket-money app, and a Home Assistant Yellow.
 This is the plan for letting someone else run it with nothing more than the

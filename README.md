@@ -122,8 +122,16 @@ docker run -d --name hearth -p 5007:5007 --env-file deploy.env \
   -v hearth-data:/app/data ghcr.io/no1089/hearth
 ```
 
-Running it without a home server at all, as a Home Assistant add-on with lists
-from HA's own to-do entities, is planned in
+Or with no server at all, as a Home Assistant add-on: Settings → Apps (Add-ons,
+until recently) → Install app → ⋮ → Repositories, add
+`https://github.com/No1089/hearth`, install Hearth, fill in the form. Lists then
+come from HA's own to-do entities, the add-on needs no token, and the tablet
+opens `http://<home-assistant-ip>:5007`. That needs this repository to be
+public; until it is, copy `server/` into the `local_apps` share of a Home
+Assistant OS box (`/local_apps/hearth` over the SSH add-on; Samba also still
+shows the share under its old name, `addons`) and it appears under "Local apps"
+in the app store. The options are in
+[server/DOCS.md](server/DOCS.md); how it got here is
 [docs/running-elsewhere.md](docs/running-elsewhere.md).
 
 The tablet side, including provisioning and the printer, is in

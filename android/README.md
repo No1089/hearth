@@ -123,7 +123,7 @@ The first `am start` (or a reboot) applies the device-owner policies and enters 
 ```sh
 adb shell dumpsys device_policy | grep -A3 "Device Owner"
 adb shell dumpsys activity activities | grep mLockTaskModeState   # LOCKED
-adb shell pm get-user-restrictions                                 # no_safe_boot, no_add_user
+adb shell dumpsys user | grep -E "no_safe_boot|no_add_user"                                 # no_safe_boot, no_add_user
 curl -s "http://192.0.2.10:2323/status?token=YOUR_TOKEN"
 ```
 
