@@ -728,6 +728,10 @@ def _immich_assets():
 
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.gif'}
 
+def _is_picture(rel):
+    """A picture, and not inside a hidden folder or a NAS's @eaDir."""
+    return rel.suffix.lower() in IMAGE_EXTS and not any(part[0] in '.@' for part in rel.parts)
+
 def _image_dir():
     """Every picture under IMAGE_DIR, subfolders included. Shown like photos (landscapes fill
     the screen), captioned with the subfolder's name. Hidden entries and a NAS's @eaDir skipped."""
@@ -735,8 +739,7 @@ def _image_dir():
     out = []
     for p in sorted(root.rglob('*')):
         rel = p.relative_to(root)
-        if p.suffix.lower() not in IMAGE_EXTS or not p.is_file() \
-                or any(part[0] in '.@' for part in rel.parts):
+        if not _is_picture(rel) or not p.is_file():
             continue
         out.append({'kind': 'photo', 'src': '/api/image/' + urllib.parse.quote(rel.as_posix()),
                     'taken': '', 'place': rel.parent.name})
@@ -767,7 +770,8 @@ def api_slides():
 
 @app.route('/api/image/<path:name>')
 def api_image(name):
-    if not IMAGE_DIR:
+    # only what the slideshow lists, not every file under the folder
+    if not IMAGE_DIR or not _is_picture(Path(name)):
         abort(404)
     return send_from_directory(IMAGE_DIR, name, max_age=86400)   # refuses anything outside IMAGE_DIR
 

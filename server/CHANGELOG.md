@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1
+
+- `/api/image/` serves only what the slideshow lists: pictures, not files in
+  hidden folders or a NAS's `@eaDir`, and not other files in the folder.
+
 ## 1.1.0
 
 - A folder of pictures as a slideshow source: `image_dir`, e.g. `/media/hearth`.
