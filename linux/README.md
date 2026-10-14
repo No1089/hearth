@@ -45,6 +45,12 @@ python3 busy-agent.py https://hearth.example.com --once
 ## Status
 
 Written to the same contract as the Mac agent and to PipeWire's documented
-object model, and tested against captured `pw-dump` output rather than on a
-desk with a call running. The first real run is the test; `--once` during a
-call is the way to do it.
+object model. Run (2026-10-14) against PipeWire 1.4 with no desktop and a
+virtual microphone: recording from it turned the banner on after 8 s and off
+when it stopped, and recording a sink's monitor, the way a screen recorder
+does, did not count. Not yet run with a camera, or on a desk during a real
+call; `--once` during a call is the way to do that.
+
+`--once` lists a microphone it sees but still says `busy=False`: the 8 s
+grace needs the loop. To check a microphone on its own, run it without
+`--once` for ten seconds.

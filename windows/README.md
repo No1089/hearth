@@ -48,5 +48,10 @@ Run it by hand to see what it sees:
 ## Status
 
 Written to the same contract as the Mac agent and to the registry keys the
-Windows privacy indicator uses, not run on a Windows desk by its author. The
-first real run is the test; `-Once` during a call is the way to do it.
+Windows privacy indicator uses. It parses (PowerShell 7.4), but has not been
+run on Windows. The first real run is the test; `-Once` during a call is the
+way to do it.
+
+`-Once` lists a microphone it sees but still says `busy=False`: the 8 s
+grace needs the loop. To check a microphone on its own, run it without
+`-Once` for ten seconds.

@@ -4,6 +4,8 @@
 
 - `/api/image/` serves only what the slideshow lists: pictures, not files in
   hidden folders or a NAS's `@eaDir`, and not other files in the folder.
+- Documentation: the watchdog is off after an install and has to be switched
+  on, on the Info tab.
 
 ## 1.1.0
 

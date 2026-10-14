@@ -6,6 +6,14 @@ a container and a compose file; `IMAGE_DIR` is a folder of pictures) and 4
 5 stays as it is. Of 6, the release workflow exists but ships unsigned builds
 until a keystore is in the repository's secrets.
 
+**Tested (2026-10-14),** in a throwaway container and on a Yellow: the image
+with `LISTS=ha` and `IMAGE_DIR`, the add-on installed from this repository
+(options, pictures under `/media`, watchdog on for a day without a restart),
+and frame-art's container without a TV. **Not yet:** frame-art pairing with a
+Frame from inside its container, and the Linux and Windows busy agents on a
+real desk during a call (Linux was run against PipeWire with a virtual
+microphone; the Windows script has only been parsed).
+
 Hearth was built against one house: a Proxmox box with Caddy in front, a
 personal to-do app, a personal pocket-money app, and a Home Assistant Yellow.
 This is the plan for letting someone else run it with nothing more than the
@@ -17,11 +25,11 @@ Home Assistant they already have and a spare tablet.
 |---|---|---|
 | Home Assistant | calendar, busy sensors, music, wake sensor | Usually: it's the audience. |
 | open-meteo | weather | Yes, free, no key. |
-| [frame-art](https://github.com/No1089/frame-art) | the paintings | Public, but it runs as systemd units on a Debian box; no container yet. |
+| [frame-art](https://github.com/No1089/frame-art) | the paintings | Public; systemd units on a Debian box, or a container (`ghcr.io/no1089/frame-art`). |
 | the todo app | shopping list, to-do sections, Particle printing | No: private, personal. |
 | the pocket-money app | balances and goals | No: private, personal. |
 | a reverse proxy with TLS | the tablet's URL | Varies. Plain HTTP on a LAN is acceptable for a kiosk. |
-| the Mac busy agent | the on-a-call banner | Any Mac; the contract is trivial to port ([mac/README.md](../mac/README.md)). |
+| a busy agent | the on-a-call banner | Mac, Linux (PipeWire) and Windows agents in this repository; the contract is three fields ([mac/README.md](../mac/README.md)). |
 | the Android SDK | building the kiosk app | No. |
 
 Weather and HA are fine. The two private apps are the real wall, and the

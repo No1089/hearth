@@ -23,6 +23,9 @@ the store. Install it, fill in the Configuration tab, start it. The image is
 built on the Home Assistant box the first time, which takes a minute or two on
 a Yellow.
 
+Then turn on **Watchdog** on the Info tab. The Supervisor leaves it off after
+an install; on, it restarts the app if the page stops answering.
+
 Without a public repository, the same folder works as a local app: copy
 `server/` to `/local_apps/hearth` (over the SSH app, or Samba, which still
 shows the share under its old name, `addons`) and it appears under "Local
