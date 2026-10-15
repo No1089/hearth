@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.2
+
+- Weather works with nothing typed in: blank `weather_lat`/`weather_lon` means
+  Home Assistant's own home location.
+
 ## 1.1.1
 
 - `/api/image/` serves only what the slideshow lists: pictures, not files in

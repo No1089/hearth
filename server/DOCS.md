@@ -67,7 +67,7 @@ own, so neither is an option.
 | `immich_api_key` | *(blank)* | Its API key. |
 | `immich_album_ids` | *(blank)* | Album ids to show. |
 | `image_dir` | *(blank)* | A folder of pictures for the slideshow, e.g. `/media/hearth` (the app sees `/media` read-only). Subfolders are included, and a subfolder's name is the caption, so `/media/hearth/Cornwall 2024/` captions its pictures "Cornwall 2024". |
-| `weather_lat`, `weather_lon` | *(blank)* | Where the weather is for. Blank: no weather. |
+| `weather_lat`, `weather_lon` | *(blank)* | Where the weather is for. Blank: Home Assistant's own home location. |
 
 ## The on-a-call banner
 

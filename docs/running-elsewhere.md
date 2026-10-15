@@ -97,7 +97,8 @@ For people on Home Assistant OS (the Yellow, the Green, a Pi) this is the
   `http://supervisor/core/api` and the websocket at the same place.
 - The add-on's option schema becomes the env file: calendars, busy entities,
   music entity, PIN, max volume.
-- `map: [addon_config:rw]` for the chores file.
+- The chores file lives in `/data`, which every add-on gets and which is in
+  its backups. `/media` is mapped read-only for a folder of pictures.
 - No ingress. Ingress needs an HA login, which a kiosk can't give; the exposed
   port is what the tablet opens.
 

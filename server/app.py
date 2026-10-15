@@ -161,7 +161,7 @@ def api_config():
         'busyLabel': BUSY_LABEL,
         'hasCalendar': bool(HA_URL and HA_TOKEN and HA_CALENDARS),
         'hasBusy': True,
-        'hasWeather': bool(WEATHER_LAT and WEATHER_LON),
+        'hasWeather': bool(_where()),
         'hasMusic': bool(HA_URL and HA_TOKEN and MUSIC_ENTITY),
         'musicMaxVolume': MUSIC_MAX_VOLUME,
         'hasPocket': bool(POCKET_URL),
@@ -225,9 +225,23 @@ WMO = {0: ('Clear', 'sun'), 1: ('Mostly clear', 'sun'), 2: ('Partly cloudy', 'pa
        80: ('Showers', 'rain'), 81: ('Showers', 'rain'), 82: ('Showers', 'storm'),
        95: ('Storm', 'storm'), 96: ('Storm', 'storm'), 99: ('Storm', 'storm')}
 
+def _where():
+    """Where the weather is for: WEATHER_LAT/LON, else Home Assistant's own home location,
+    so an add-on shows weather with nothing typed in. None = no weather."""
+    if WEATHER_LAT and WEATHER_LON:
+        return WEATHER_LAT, WEATHER_LON
+    if not (HA_URL and HA_TOKEN):
+        return None
+    try:
+        c = cached('ha-home', 3600, lambda: ha('/api/config'))
+        return str(c['latitude']), str(c['longitude'])
+    except Exception:
+        return None
+
 def _weather():
+    lat, lon = _where()
     q = urllib.parse.urlencode({
-        'latitude': WEATHER_LAT, 'longitude': WEATHER_LON, 'timezone': TIMEZONE,
+        'latitude': lat, 'longitude': lon, 'timezone': TIMEZONE,
         'current': 'temperature_2m,weathercode,is_day',
         'daily': 'temperature_2m_max,temperature_2m_min,weathercode,precipitation_probability_max',
         'forecast_days': 7})
@@ -263,7 +277,7 @@ def api_state():
             out['wake'] = cached('wake', 3, _wake, stale_ok=30)   # e.g. kitchen occupancy → page wakes the screen
         except Exception:
             pass
-    if WEATHER_LAT and WEATHER_LON:
+    if _where():
         try:
             out['weather'] = cached('weather', 600, _weather)
         except Exception:
