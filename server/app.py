@@ -961,11 +961,17 @@ def _home_groups():
         if spec.startswith('#'):
             groups.append((spec[1:].strip(), []))
             continue
-        ent, _, label = spec.partition('|')
-        ent = ent.strip()
+        ent, label, moon, sun = ([x.strip() for x in spec.split('|')] + ['', '', ''])[:4]
         if ent.lstrip('~').split('.', 1)[0] in ('light', 'switch'):
-            groups[-1][1].append((ent, label.strip()))
+            groups[-1][1].append((ent, label))
+            if moon.startswith('light.'):
+                _MOON[ent.lstrip('~')] = (moon, sun if sun.startswith('light.') else ent.lstrip('~'))
     return [g for g in groups if g[1]]
+
+# `light.ceiling|Ceiling|light.ceiling_moonlight|light.ceiling_lan`: the tile gets a sun/moon button.
+# The 4th field is the entity that leaves moonlight reliably (e.g. the Yeelight one when the main
+# entity comes through HomeKit, which doesn't know the mode); blank = the tile's own entity.
+_MOON = {}
 
 def _solo(ent):
     """`~light.x`: a mode such as a ceiling's moonlight, left out of All on / Dim (Off still includes it)."""
@@ -973,7 +979,10 @@ def _solo(ent):
 
 def _home_lights():
     """{entity_id: label}; only these can be switched from the tablet."""
-    return {e.lstrip('~'): l for _, ents in _home_groups() for e, l in ents}
+    out = {e.lstrip('~'): l for _, ents in _home_groups() for e, l in ents}
+    for moon, sun in _MOON.values():                 # the linked moon/sun entities may be switched too
+        out.setdefault(moon, ''); out.setdefault(sun, '')
+    return out
 
 def _home_media():
     return {e.strip(): l.strip() for e, _, l in (x.partition('|') for x in HOME_MEDIA) if e.strip().startswith('media_player.')}
@@ -1011,8 +1020,21 @@ def _light(ent, label):
         out['k'] = a['color_temp_kelvin']
     return out
 
+def _with_moon(l):
+    """Fold a linked moonlight into its tile: mode 'moon' while it's on (pct = moonlight brightness)."""
+    link = _MOON.get(l['id'])
+    if not link:
+        return l
+    m = _light(link[0], '')
+    l['moonId'] = link[0]
+    if m['on']:
+        l.update(on=True, mode='moon', pct=m['pct'], rgb=None, k=None)
+    else:
+        l['mode'] = 'sun'
+    return l
+
 def _home():
-    groups = [{'title': t, 'lights': [{**_light(e.lstrip('~'), l), 'solo': _solo(e)} for e, l in ents]} for t, ents in _home_groups()]
+    groups = [{'title': t, 'lights': [_with_moon({**_light(e.lstrip('~'), l), 'solo': _solo(e)}) for e, l in ents]} for t, ents in _home_groups()]
     media = []
     for ent, label in _home_media().items():
         st = _st(ent); a = st.get('attributes', {})
@@ -1052,7 +1074,8 @@ def api_home_light():
         want = body['all']
         targets = [e.lstrip('~') for e, _ in ents if e.lstrip('~').startswith('light.') and (want == 'off' or not _solo(e))]
     elif body.get('id') in allowed and body['id'].startswith('light.') and (body.get('rgb') or body.get('kelvin')):
-        ent, data = body['id'], {'entity_id': body['id'], 'transition': 1}
+        ent = _MOON[body['id']][1] if body['id'] in _MOON else body['id']   # leaves moonlight too
+        data = {'entity_id': ent, 'transition': 1}
         if body.get('rgb'):
             rgb = [max(0, min(255, int(x))) for x in body['rgb']][:3]
             if len(rgb) != 3:
@@ -1062,6 +1085,14 @@ def api_home_light():
             lo, hi = (_light(ent, '').get('kelvin') or [2000, 6500])
             data['color_temp_kelvin'] = max(lo, min(hi, int(body['kelvin'])))
         ha_service('light', 'turn_on', data)
+        invalidate('home')
+        return jsonify({'ok': True})
+    elif body.get('mode') in ('moon', 'sun') and body.get('id') in _MOON:
+        moon, sun = _MOON[body['id']]
+        if body['mode'] == 'moon':
+            ha_service('light', 'turn_on', {'entity_id': moon})
+        else:
+            ha_service('light', 'turn_on', {'entity_id': sun, 'brightness_pct': 100})
         invalidate('home')
         return jsonify({'ok': True})
     elif body.get('rgb') or body.get('kelvin'):
@@ -1075,6 +1106,8 @@ def api_home_light():
         dom = ent.split('.', 1)[0]
         if want == 'off' or (want == 'pct' and int(body['pct']) <= 0):
             ha_service(dom, 'turn_off', {'entity_id': ent})
+            if ent in _MOON:                         # a ceiling in moonlight: that one off too
+                ha_service('light', 'turn_off', {'entity_id': _MOON[ent][0]})
         elif dom == 'switch':
             ha_service('switch', 'turn_on', {'entity_id': ent})
         else:

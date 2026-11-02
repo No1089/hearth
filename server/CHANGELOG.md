@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0
+
+- Sun/moon button: `entity|Label|moonlight entity|daylight entity` folds a
+  ceiling's moonlight into its tile instead of a separate tile. In moonlight the
+  tile shows a moon and the slider sets moonlight brightness; the daylight
+  entity (optional) is the one that reliably leaves the mode, e.g. the Yeelight
+  entity when the main one comes through HomeKit.
+
 ## 1.5.0
 
 - `~` in front of a `home_lights` entry keeps it out of All on and Dim (Off

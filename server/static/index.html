@@ -263,6 +263,13 @@ main { position: relative; min-height: 0; padding: .3em 1.2em 1.1em .2em; }
   display: grid; place-items: center; background: var(--panel); }
 .light .clr i { width: 1.3em; height: 1.3em; border-radius: 50%; border: 2px solid var(--line);
   background: conic-gradient(#ffb3c6, #ffe0a8, #fff3a8, #b8f2d0, #b3dcff, #d4c2ff, #ffb3c6); }
+.light .mode { width: 2.6em; height: 2.6em; border-radius: 12px; flex: none; display: grid; place-items: center;
+  background: var(--panel); color: var(--dim); }
+.light .mode svg { font-size: 1.3em; }
+.light.wide { grid-column: span 2; }
+.light.moon { background: color-mix(in srgb, #8fa3d9 24%, var(--panel)); }
+.light.moon .ic { background: #8fa3d9; color: #10182e; box-shadow: 0 0 18px rgba(143,163,217,.55); }
+.light.moon .dim i { background: #8fa3d9; }
 .light .clr.wt i { background: linear-gradient(135deg, #ffb46b, #fff0dc 55%, #e6efff); }
 .swsheet { width: min(28em, 90vw); display: flex; flex-direction: column; gap: .9em; }
 .swsheet .hd { display: flex; align-items: center; gap: .5em; font-weight: 700; font-size: 1.15rem; }
@@ -935,11 +942,12 @@ function renderHome() {
     return `<div class="lgroup"><div class="lhead"><h2>${esc(g.title)}</h2>${dimmable ? `<span class="all">
         <button class="btn ghost" data-all="off" data-g="${gi}">Off</button><button class="btn ghost" data-all="dim" data-g="${gi}">Dim</button><button class="btn" data-all="on" data-g="${gi}">All on</button></span>` : ''}</div>
       <div class="lgrid">${g.lights.map((l, i) => `
-        <div class="light${l.on ? ' on' : ''}${l.available ? '' : ' na'}${l.colour || l.temps ? ' has-clr' : ''}" data-i="${gi}-${i}">
-          <button class="tap"><span class="ic">${icon(l.kind === 'switch' ? 'i-power' : 'i-bulb')}</span><span><div class="nm">${esc(l.name)}</div>
-            <div class="st">${!l.available ? 'Unavailable' : l.on ? (l.pct != null ? l.pct + '%' : 'On') : 'Off'}</div></span></button>
-          ${l.dimmable || l.colour || l.temps ? `<div class="ctl">${l.dimmable ? `<div class="dim"><i style="width:${l.on ? (l.pct ?? 100) : 0}%"></i><b>${l.on ? (l.pct ?? 100) + '%' : ''}</b></div>` : ''}${l.colour || l.temps
-            ? `<button class="clr${l.colour ? '' : ' wt'}" aria-label="Colour"><i${l.on && (l.rgb || l.k) ? ` style="background:${l.rgb ? `rgb(${l.rgb})` : kelvinCss(l.k)}"` : ''}></i></button>` : ''}</div>` : ''}
+        <div class="light${l.on ? ' on' : ''}${l.mode === 'moon' ? ' moon' : ''}${l.moonId && (l.colour || l.temps) ? ' wide' : ''}${l.available ? '' : ' na'}" data-i="${gi}-${i}">
+          <button class="tap"><span class="ic">${icon(l.mode === 'moon' ? 'w-moon' : l.kind === 'switch' ? 'i-power' : 'i-bulb')}</span><span><div class="nm">${esc(l.name)}</div>
+            <div class="st">${!l.available ? 'Unavailable' : l.on ? (l.mode === 'moon' ? 'Moonlight' + (l.pct != null ? ' ' + l.pct + '%' : '') : l.pct != null ? l.pct + '%' : 'On') : 'Off'}</div></span></button>
+          ${l.dimmable || l.colour || l.temps || l.moonId ? `<div class="ctl">${l.dimmable ? `<div class="dim"><i style="width:${l.on ? (l.pct ?? 100) : 0}%"></i><b>${l.on ? (l.pct ?? 100) + '%' : ''}</b></div>` : ''}${l.colour || l.temps
+            ? `<button class="clr${l.colour ? '' : ' wt'}" aria-label="Colour"><i${l.on && (l.rgb || l.k) ? ` style="background:${l.rgb ? `rgb(${l.rgb})` : kelvinCss(l.k)}"` : ''}></i></button>` : ''}${l.moonId
+            ? `<button class="mode" aria-label="${l.mode === 'moon' ? 'Daylight' : 'Moonlight'}">${icon(l.mode === 'moon' ? 'w-sun' : 'w-moon')}</button>` : ''}</div>` : ''}
         </div>`).join('')}</div></div>`;
   }).join('') || '<div class="none">No lights set (HOME_LIGHTS)</div>';
   const media = home.media || [];
@@ -1020,6 +1028,12 @@ $('#colour').addEventListener('click', e => {
   homePost('/api/home/light', body, () => { l.on = true; if (body.kelvin) { l.k = body.kelvin; l.rgb = null; } else { l.rgb = body.rgb; l.k = null; } if (l.pct == null) l.pct = 100; });
 });
 $('#lights').addEventListener('click', e => {
+  const b = e.target.closest('.mode'); if (!b) return;
+  const l = homeLightAt(b); if (!l?.available) return;
+  const mode = l.mode === 'moon' ? 'sun' : 'moon';
+  homePost('/api/home/light', { id: l.id, mode }, () => { l.on = true; l.mode = mode; l.pct = mode === 'moon' ? (l.pct ?? 20) : 100; });
+}, true);
+$('#lights').addEventListener('click', e => {
   const c = e.target.closest('.clr'); if (!c) return;
   const l = homeLightAt(c); if (l?.available) openColour(l);
 }, true);
@@ -1036,7 +1050,7 @@ $('#lights').addEventListener('pointerdown', e => {
   const move = ev => { pct = at(ev); show(pct); };
   const up = () => {
     bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', up); bar.removeEventListener('pointercancel', up);
-    homePost('/api/home/light', { id: l.id, pct }, () => { l.on = true; l.pct = pct; });
+    homePost('/api/home/light', { id: l.mode === 'moon' ? l.moonId : l.id, pct }, () => { l.on = true; l.pct = pct; });
   };
   bar.addEventListener('pointermove', move); bar.addEventListener('pointerup', up); bar.addEventListener('pointercancel', up);
 });
