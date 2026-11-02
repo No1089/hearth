@@ -5,7 +5,7 @@
 # (lists comma-joined, blanks skipped), so there is no run script. What each option
 # does is in DOCS.md.
 name: Hearth
-version: "1.1.2"
+version: "1.2.0"
 slug: hearth
 description: "Kitchen wall dashboard for a spare tablet: paintings, the week, shopping list, to-dos, pocket money, the speaker and an on-a-call banner"
 url: https://github.com/No1089/hearth
@@ -48,6 +48,10 @@ options:
   busy_label: On a call
   music_entity: ""
   music_max_volume: 0.6
+  home_lights_title: Lights
+  home_lights: ""
+  home_plants: ""
+  plant_dry: 20
   pocket_url: ""
   pocket_pin: ""
   art_url: ""
@@ -69,6 +73,10 @@ schema:
   busy_label: str
   music_entity: "str?"
   music_max_volume: "float(0,1)"
+  home_lights_title: "str?"
+  home_lights: "str?"
+  home_plants: "str?"
+  plant_dry: "float(0,100)"
   pocket_url: "str?"
   pocket_pin: "password?"
   art_url: "str?"

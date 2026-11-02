@@ -60,6 +60,10 @@ own, so neither is an option.
 | `busy_label` | `On a call` | The text on the banner. |
 | `music_entity` | *(blank)* | A `media_player`, e.g. the kitchen Sonos. Blank: no Music tab. |
 | `music_max_volume` | `0.6` | Volume cap, 0 to 1. |
+| `home_lights_title` | `Lights` | Heading over the lights on the Home tab. |
+| `home_lights` | *(blank)* | Lights and switches the tablet may switch, `entity|Label`: `light.kitchen_ceiling|Ceiling,light.lantern`. Only these can be switched; dimmable lights get a slider. Blank with no plants: no Home tab. |
+| `home_plants` | *(blank)* | Plant sensors, `Name|moisture|temperature|battery`; temperature and battery are optional. |
+| `plant_dry` | `20` | Soil moisture (%) below which a plant shows "Needs water". |
 | `pocket_url` | *(blank)* | The pocket-money app. Blank: no Pocket tab. |
 | `pocket_pin` | *(blank)* | Parent PIN that credits a pocket-money day and edits chores. |
 | `art_url` | *(blank)* | A frame-art gallery for the slideshow. |

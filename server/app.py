@@ -93,6 +93,13 @@ MUSIC_MAX_VOLUME = float(env('MUSIC_MAX_VOLUME', '0.6'))
 WEATHER_LAT      = env('WEATHER_LAT')
 WEATHER_LON      = env('WEATHER_LON')
 TIMEZONE         = env('TZ', 'UTC')                   # as an add-on the Supervisor sets TZ to HA's zone
+# home view: lights the tablet may switch (light.* / switch.*, optional |Label), and plant sensors
+# HOME_LIGHTS=light.kitchen1_light|Kitchen 1,light.lantern
+# HOME_PLANTS=Monstera|sensor.soil_moisture|sensor.soil_temp|sensor.soil_battery   (temp + battery optional)
+HOME_LIGHTS_TITLE = env('HOME_LIGHTS_TITLE', 'Lights')
+HOME_LIGHTS      = [x.strip() for x in env('HOME_LIGHTS').split(',') if x.strip()]
+HOME_PLANTS      = [x.strip() for x in env('HOME_PLANTS').split(',') if x.strip()]
+PLANT_DRY        = float(env('PLANT_DRY', '20'))      # soil moisture % below which a plant shows as thirsty
 
 # ── tiny TTL cache ────────────────────────────────────────────────────────────
 _cache, _lock = {}, threading.Lock()
@@ -165,6 +172,7 @@ def api_config():
         'hasMusic': bool(HA_URL and HA_TOKEN and MUSIC_ENTITY),
         'musicMaxVolume': MUSIC_MAX_VOLUME,
         'hasPocket': bool(POCKET_URL),
+        'hasHome': bool(HA_URL and HA_TOKEN and (HOME_LIGHTS or HOME_PLANTS)),
         'pocketPinSet': bool(POCKET_PIN),
         'lists': LISTS,
     })
@@ -939,6 +947,84 @@ def api_music_action(action):
     else:
         abort(404)
     invalidate('music')
+    return jsonify({'ok': True})
+
+# ── home (lights + plants via Home Assistant) ────────────────────────────────
+
+def _home_lights():
+    """{entity_id: label} from HOME_LIGHTS; only these can be switched from the tablet."""
+    out = {}
+    for spec in HOME_LIGHTS:
+        ent, _, label = spec.partition('|')
+        if ent.split('.', 1)[0] in ('light', 'switch'):
+            out[ent.strip()] = label.strip()
+    return out
+
+def _num(st):
+    try:
+        return float(st.get('state'))
+    except (TypeError, ValueError):
+        return None
+
+def _st(ent):
+    """One entity's state; a renamed or missing entity shows as unavailable instead of failing the view."""
+    try:
+        return ha(f'/api/states/{ent}', timeout=4) or {}
+    except Exception as e:
+        app.logger.warning('home: %s: %s', ent, e)
+        return {}
+
+def _home():
+    lights = []
+    for ent, label in _home_lights().items():
+        st = _st(ent)
+        a = st.get('attributes', {})
+        modes = a.get('supported_color_modes') or []
+        lights.append({'id': ent, 'name': label or a.get('friendly_name') or ha_title(ent),
+                       'on': st.get('state') == 'on', 'available': st.get('state') not in (None, 'unavailable', 'unknown'),
+                       'dimmable': ent.startswith('light.') and any(m != 'onoff' for m in modes),
+                       'pct': round(a['brightness'] / 2.55) if a.get('brightness') is not None else None})
+    plants = []
+    for spec in HOME_PLANTS:
+        name, *ents = [x.strip() for x in spec.split('|')]
+        vals = [_num(_st(e)) if e else None for e in (ents + [None, None, None])[:3]]
+        plants.append({'name': name, 'moisture': vals[0], 'temp': vals[1], 'battery': vals[2]})
+    return {'lightsTitle': HOME_LIGHTS_TITLE, 'lights': lights, 'plants': plants, 'plantDry': PLANT_DRY}
+
+def _home_required():
+    if not (HA_URL and HA_TOKEN and (HOME_LIGHTS or HOME_PLANTS)):
+        abort(404)
+
+@app.route('/api/home')
+def api_home():
+    _home_required()
+    try:
+        return jsonify(cached('home', 1.5, _home))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 502
+
+@app.route('/api/home/light', methods=['POST'])
+def api_home_light():
+    """{id, on} or {id, pct} for one light, or {all: on|dim|off} for every HOME_LIGHTS entry."""
+    _home_required()
+    body, allowed = request.get_json(silent=True) or {}, _home_lights()
+    if body.get('all') in ('on', 'dim', 'off'):
+        targets, want = list(allowed), body['all']
+    elif body.get('id') in allowed:
+        targets = [body['id']]
+        want = 'pct' if body.get('pct') is not None else ('on' if body.get('on') else 'off')
+    else:
+        abort(404)
+    for ent in targets:
+        dom = ent.split('.', 1)[0]
+        if want == 'off' or (want == 'pct' and int(body['pct']) <= 0):
+            ha_service(dom, 'turn_off', {'entity_id': ent})
+        elif dom == 'switch':
+            ha_service('switch', 'turn_on', {'entity_id': ent})
+        else:
+            pct = 100 if want == 'on' else 20 if want == 'dim' else max(1, min(100, int(body['pct'])))
+            ha_service('light', 'turn_on', {'entity_id': ent, 'brightness_pct': pct, 'transition': 1})
+    invalidate('home')
     return jsonify({'ok': True})
 
 if __name__ == '__main__':

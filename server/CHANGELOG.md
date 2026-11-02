@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0
+
+- Home tab: the lights you list (`home_lights`) as big tiles, tap to switch,
+  slide to dim, plus All on / Dim / Off; and plant sensors (`home_plants`) with
+  soil moisture, temperature, a low battery, and "Needs water" under `plant_dry`.
+  The server switches only the listed entities.
+
 ## 1.1.2
 
 - Weather works with nothing typed in: blank `weather_lat`/`weather_lon` means

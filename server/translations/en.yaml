@@ -29,6 +29,18 @@ configuration:
   music_max_volume:
     name: Volume cap
     description: The loudest the page will set the speaker, 0 to 1.
+  home_lights_title:
+    name: Lights heading
+    description: The heading over the lights on the Home tab, e.g. Kitchen lights.
+  home_lights:
+    name: Lights
+    description: "Lights and switches the tablet may turn on and off, `entity|Label`, comma-separated. Only these can be switched."
+  home_plants:
+    name: Plants
+    description: "`Name|soil moisture|temperature|battery`, comma-separated; temperature and battery are optional."
+  plant_dry:
+    name: Thirsty below
+    description: Soil moisture (%) under which a plant shows "Needs water".
   pocket_url:
     name: Pocket-money app
     description: Its URL. Blank hides the Pocket tab.
