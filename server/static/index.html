@@ -931,7 +931,7 @@ const homeLightAt = el => { const [g, i] = el.closest('.light').dataset.i.split(
 function renderHome() {
   if (!home) return;
   $('#lights').innerHTML = (home.groups || []).map((g, gi) => {
-    const dimmable = g.lights.filter(l => l.kind === 'light').length >= 2;
+    const dimmable = g.lights.filter(l => l.kind === 'light' && !l.solo).length >= 2;
     return `<div class="lgroup"><div class="lhead"><h2>${esc(g.title)}</h2>${dimmable ? `<span class="all">
         <button class="btn ghost" data-all="off" data-g="${gi}">Off</button><button class="btn ghost" data-all="dim" data-g="${gi}">Dim</button><button class="btn" data-all="on" data-g="${gi}">All on</button></span>` : ''}</div>
       <div class="lgrid">${g.lights.map((l, i) => `
@@ -973,7 +973,7 @@ $('#lights').addEventListener('click', e => {
   const all = e.target.closest('[data-all]');
   if (all) {
     const a = all.dataset.all, g = +all.dataset.g;
-    homePost('/api/home/light', { all: a, group: g }, () => home.groups[g].lights.filter(l => l.kind === 'light')
+    homePost('/api/home/light', { all: a, group: g }, () => home.groups[g].lights.filter(l => l.kind === 'light' && (a === 'off' || !l.solo))
       .forEach(l => { l.on = a !== 'off'; l.pct = a === 'on' ? 100 : a === 'dim' ? 20 : l.pct; }));
     return;
   }

@@ -962,13 +962,18 @@ def _home_groups():
             groups.append((spec[1:].strip(), []))
             continue
         ent, _, label = spec.partition('|')
-        if ent.strip().split('.', 1)[0] in ('light', 'switch'):
-            groups[-1][1].append((ent.strip(), label.strip()))
+        ent = ent.strip()
+        if ent.lstrip('~').split('.', 1)[0] in ('light', 'switch'):
+            groups[-1][1].append((ent, label.strip()))
     return [g for g in groups if g[1]]
+
+def _solo(ent):
+    """`~light.x`: a mode such as a ceiling's moonlight, left out of All on / Dim (Off still includes it)."""
+    return ent.startswith('~')
 
 def _home_lights():
     """{entity_id: label}; only these can be switched from the tablet."""
-    return {e: l for _, ents in _home_groups() for e, l in ents}
+    return {e.lstrip('~'): l for _, ents in _home_groups() for e, l in ents}
 
 def _home_media():
     return {e.strip(): l.strip() for e, _, l in (x.partition('|') for x in HOME_MEDIA) if e.strip().startswith('media_player.')}
@@ -1007,7 +1012,7 @@ def _light(ent, label):
     return out
 
 def _home():
-    groups = [{'title': t, 'lights': [_light(e, l) for e, l in ents]} for t, ents in _home_groups()]
+    groups = [{'title': t, 'lights': [{**_light(e.lstrip('~'), l), 'solo': _solo(e)} for e, l in ents]} for t, ents in _home_groups()]
     media = []
     for ent, label in _home_media().items():
         st = _st(ent); a = st.get('attributes', {})
@@ -1044,7 +1049,8 @@ def api_home_light():
             ents = groups[int(body.get('group', 0))][1]
         except (ValueError, IndexError):
             abort(404)
-        targets, want = [e for e, _ in ents if e.startswith('light.')], body['all']
+        want = body['all']
+        targets = [e.lstrip('~') for e, _ in ents if e.lstrip('~').startswith('light.') and (want == 'off' or not _solo(e))]
     elif body.get('id') in allowed and body['id'].startswith('light.') and (body.get('rgb') or body.get('kelvin')):
         ent, data = body['id'], {'entity_id': body['id'], 'transition': 1}
         if body.get('rgb'):

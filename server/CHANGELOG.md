@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.0
+
+- `~` in front of a `home_lights` entry keeps it out of All on and Dim (Off
+  still includes it): for mode lights such as a ceiling's moonlight, which
+  would otherwise fight the main light.
+
 ## 1.4.0
 
 - Home tab: lights that can change colour or white temperature get a colour
