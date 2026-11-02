@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0
+
+- Home tab: rooms (`#Heading` in `home_lights`), each with its own Off / Dim /
+  All on (lights only, so a heater on a switch is never turned on by All on);
+  play/pause buttons for `home_media`; plant temperatures in °C; tile labels
+  stay on one line.
+
 ## 1.2.0
 
 - Home tab: the lights you list (`home_lights`) as big tiles, tap to switch,

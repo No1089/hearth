@@ -224,16 +224,29 @@ main { position: relative; min-height: 0; padding: .3em 1.2em 1.1em .2em; }
 /* home: lights + plants */
 #v-home { display: grid; grid-template-columns: 1.5fr 1fr; gap: 1em; }
 #v-home.hidden { display: none; }
-#v-home .card h2 .all { margin-left: auto; display: flex; gap: .4em; }
-#v-home .card h2 .all .btn { padding: .45em .9em; font-size: .9rem; }
-.lights { flex: 1; overflow-y: auto; padding: .2em .9em 1em; display: grid; gap: .8em;
-  grid-template-columns: repeat(auto-fill, minmax(9em, 1fr)); align-content: start; }
+#v-home { grid-template-columns: 1.9fr 1fr; }
+.lights { flex: 1; overflow-y: auto; padding: .3em .9em 1em; display: flex; flex-direction: column; gap: 1em; }
+.lhead { display: flex; align-items: center; gap: .5em; padding: .5em .1em .55em; }
+.lhead h2 { padding: 0; font-size: 1.15rem; }
+.lhead .all { margin-left: auto; display: flex; gap: .4em; }
+.lhead .all .btn { padding: .4em .85em; font-size: .88rem; }
+.lgrid { display: grid; gap: .7em; grid-template-columns: repeat(auto-fill, minmax(9em, 1fr)); }
+.media { padding: .1em .9em 1em; display: grid; gap: .7em; }
+.mp { border-radius: 16px; background: var(--chip); display: flex; align-items: center; gap: .8em; padding: .7em .8em .7em 1em; }
+.mp .tx { flex: 1; min-width: 0; }
+.mp .nm { font-weight: 700; font-size: 1.1rem; }
+.mp .st { color: var(--dim); font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp button { width: 3.2em; height: 3.2em; border-radius: 50%; display: grid; place-items: center; font-size: 1.3rem;
+  background: var(--accent); color: var(--accent-ink); flex: none; }
+.mp.na { opacity: .5; } .mp.na button { background: var(--faint); }
 .light { border-radius: 16px; background: var(--chip); display: flex; flex-direction: column; overflow: hidden;
   transition: background .25s, opacity .25s; }
-.light .tap { display: flex; align-items: center; gap: .7em; padding: 1em .9em; text-align: left; }
-.light .ic { width: 2.4em; height: 2.4em; border-radius: 50%; display: grid; place-items: center; font-size: 1.15rem;
+.light .tap { display: flex; align-items: center; gap: .5em; padding: .9em .7em; text-align: left; min-width: 0; width: 100%; }
+.light .tap > span:last-child { min-width: 0; flex: 1; }
+.light .nm, .light .st { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.light .ic { width: 2.1em; height: 2.1em; border-radius: 50%; display: grid; place-items: center; font-size: 1rem;
   background: var(--panel); color: var(--faint); flex: none; transition: all .25s; }
-.light .nm { font-weight: 700; font-size: 1.1rem; line-height: 1.2; }
+.light .nm { font-weight: 700; font-size: 1rem; line-height: 1.2; }
 .light .st { color: var(--dim); font-size: .9rem; }
 .light.on { background: color-mix(in srgb, #f2b33d 22%, var(--panel)); }
 .light.on .ic { background: #f2b33d; color: #3a2a05; box-shadow: 0 0 18px rgba(242,179,61,.55); }
@@ -333,6 +346,7 @@ body.night #toast button { color: #10201c; }
   <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M14.8 9.2a3 3 0 0 0-2.8-1.7c-1.6 0-2.8.9-2.8 2.2 0 3 5.8 1.6 5.8 4.6 0 1.3-1.3 2.2-3 2.2a3.2 3.2 0 0 1-3-1.8M12 6v1.5M12 16.5V18"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
   <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.3 1.1 2.2v.5h5v-.5c0-.9.4-1.6 1.1-2.2A6 6 0 0 0 12 3z"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.4 6.4a8 8 0 1 0 11.2 0"/></symbol>
   <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M5 19c0-8 5-14 15-15-1 10-7 15-15 15z"/><path d="M5 19l7-7"/></symbol>
   <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 3.5s6 6.4 6 10.5a6 6 0 0 1-12 0c0-4.1 6-10.5 6-10.5z"/></symbol>
   <symbol id="w-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></symbol>
@@ -406,10 +420,11 @@ body.night #toast button { color: #10201c; }
     </section>
 
     <section class="view hidden" id="v-home">
-      <div class="card"><h2><span id="lights-title">Lights</span><span class="all">
-        <button class="btn ghost" data-all="off">Off</button><button class="btn ghost" data-all="dim">Dim</button><button class="btn" data-all="on">All on</button></span></h2>
-        <div class="lights" id="lights"></div></div>
-      <div class="card"><h2>Plants</h2><div class="plants" id="plants"></div></div>
+      <div class="card"><div class="lights" id="lights"></div></div>
+      <div class="side">
+        <div class="card hidden" id="media-card"><h2>TV &amp; speakers</h2><div class="media" id="media"></div></div>
+        <div class="card" style="flex:1"><h2>Plants</h2><div class="plants" id="plants"></div></div>
+      </div>
     </section>
     <section class="view hidden" id="v-pocket"><div class="pocket-grid" id="pocket-kids"></div></section>
     <section class="view hidden" id="v-music">
@@ -878,22 +893,35 @@ function editChores(kid, pin) {
   };
 }
 
-/* ── home: lights + plants ─────────────────────── */
+/* ── home: lights, TV, plants ──────────────────── */
 let home = null, homeHold = 0;                         // homeHold: ignore polls briefly after a tap
 async function loadHome() {
   if (Date.now() < homeHold) return;
-  try { home = await api('/api/home'); } catch { if (!home) home = { lights: [], plants: [] }; }
+  try { home = await api('/api/home'); } catch { if (!home) home = { groups: [], media: [], plants: [] }; }
   renderHome();
 }
+const homeLightAt = el => { const [g, i] = el.closest('.light').dataset.i.split('-'); return home.groups[+g].lights[+i]; };
 function renderHome() {
   if (!home) return;
-  $('#lights-title').textContent = home.lightsTitle || 'Lights';
-  $('#lights').innerHTML = (home.lights || []).map((l, i) => `
-    <div class="light${l.on ? ' on' : ''}${l.available ? '' : ' na'}" data-i="${i}">
-      <button class="tap">${'<span class="ic">' + icon('i-bulb') + '</span>'}<span><div class="nm">${esc(l.name)}</div>
-        <div class="st">${!l.available ? 'Unavailable' : l.on ? (l.pct != null ? l.pct + '%' : 'On') : 'Off'}</div></span></button>
-      ${l.dimmable ? `<div class="dim"><i style="width:${l.on ? (l.pct ?? 100) : 0}%"></i><b>${l.on ? (l.pct ?? 100) + '%' : ''}</b></div>` : ''}
-    </div>`).join('') || '<div class="none">No lights set (HOME_LIGHTS)</div>';
+  $('#lights').innerHTML = (home.groups || []).map((g, gi) => {
+    const dimmable = g.lights.filter(l => l.kind === 'light').length >= 2;
+    return `<div class="lgroup"><div class="lhead"><h2>${esc(g.title)}</h2>${dimmable ? `<span class="all">
+        <button class="btn ghost" data-all="off" data-g="${gi}">Off</button><button class="btn ghost" data-all="dim" data-g="${gi}">Dim</button><button class="btn" data-all="on" data-g="${gi}">All on</button></span>` : ''}</div>
+      <div class="lgrid">${g.lights.map((l, i) => `
+        <div class="light${l.on ? ' on' : ''}${l.available ? '' : ' na'}" data-i="${gi}-${i}">
+          <button class="tap"><span class="ic">${icon(l.kind === 'switch' ? 'i-power' : 'i-bulb')}</span><span><div class="nm">${esc(l.name)}</div>
+            <div class="st">${!l.available ? 'Unavailable' : l.on ? (l.pct != null ? l.pct + '%' : 'On') : 'Off'}</div></span></button>
+          ${l.dimmable ? `<div class="dim"><i style="width:${l.on ? (l.pct ?? 100) : 0}%"></i><b>${l.on ? (l.pct ?? 100) + '%' : ''}</b></div>` : ''}
+        </div>`).join('')}</div></div>`;
+  }).join('') || '<div class="none">No lights set (HOME_LIGHTS)</div>';
+  const media = home.media || [];
+  $('#media-card').classList.toggle('hidden', !media.length);
+  $('#media').innerHTML = media.map((m, i) => {
+    const na = ['unavailable', 'unknown', 'off', 'standby'].includes(m.state), playing = m.state === 'playing';
+    const st = m.state === 'unavailable' ? 'Unavailable' : [m.state[0].toUpperCase() + m.state.slice(1), m.app, m.title].filter(Boolean).join(' · ');
+    return `<div class="mp${na ? ' na' : ''}"><div class="tx"><div class="nm">${esc(m.name)}</div><div class="st">${esc(st)}</div></div>
+      <button data-m="${i}" aria-label="Play or pause"${na ? ' disabled' : ''}>${icon(playing ? 'i-pause' : 'i-play')}</button></div>`;
+  }).join('');
   const dry = home.plantDry ?? 20;
   $('#plants').innerHTML = (home.plants || []).map(p => {
     const m = p.moisture, thirsty = m != null && m < dry;
@@ -902,30 +930,38 @@ function renderHome() {
       <div class="pc">${m != null ? Math.round(m) : '–'}<small>%</small></div>
       <div class="bar"><i style="width:${Math.max(0, Math.min(100, m ?? 0))}%"></i></div>
       <div class="meta">${thirsty ? '<span class="thirsty">Needs water</span>' : '<span>Soil moisture</span>'}
-        ${p.temp != null ? `<span>${p.temp.toFixed(1)}°</span>` : ''}
+        ${p.temp != null ? `<span>${p.temp.toFixed(1)} °C</span>` : ''}
         ${p.battery != null && p.battery < 20 ? `<span>Battery ${Math.round(p.battery)}%</span>` : ''}</div>
     </div>`;
   }).join('') || '<div class="none">No plants set (HOME_PLANTS)</div>';
 }
-async function homeLight(body, optimistic) {
+async function homePost(path, body, optimistic) {
   homeHold = Date.now() + 2500;
   if (optimistic) { optimistic(); renderHome(); }
-  try { await api('/api/home/light', { method: 'POST', body }); } catch { toast("Couldn't reach the lights"); homeHold = 0; }
+  try { await api(path, { method: 'POST', body }); } catch { toast("Couldn't reach Home Assistant"); homeHold = 0; }
   setTimeout(() => { homeHold = 0; loadHome(); }, 1200);
 }
 $('#lights').addEventListener('click', e => {
+  const all = e.target.closest('[data-all]');
+  if (all) {
+    const a = all.dataset.all, g = +all.dataset.g;
+    homePost('/api/home/light', { all: a, group: g }, () => home.groups[g].lights.filter(l => l.kind === 'light')
+      .forEach(l => { l.on = a !== 'off'; l.pct = a === 'on' ? 100 : a === 'dim' ? 20 : l.pct; }));
+    return;
+  }
   const t = e.target.closest('.tap'); if (!t) return;
-  const l = home.lights[+t.closest('.light').dataset.i]; if (!l?.available) return;
-  homeLight({ id: l.id, on: !l.on }, () => { l.on = !l.on; if (l.on && l.pct == null) l.pct = 100; });
+  const l = homeLightAt(t); if (!l?.available) return;
+  homePost('/api/home/light', { id: l.id, on: !l.on }, () => { l.on = !l.on; if (l.on && l.dimmable && l.pct == null) l.pct = 100; });
 });
-$$('#v-home [data-all]').forEach(b => b.addEventListener('click', () => {
-  const a = b.dataset.all;
-  homeLight({ all: a }, () => (home.lights || []).forEach(l => { l.on = a !== 'off'; l.pct = a === 'on' ? 100 : a === 'dim' ? 20 : l.pct; }));
-}));
+$('#media').addEventListener('click', e => {
+  const b = e.target.closest('[data-m]'); if (!b || b.disabled) return;
+  const m = home.media[+b.dataset.m];
+  homePost('/api/home/media', { id: m.id }, () => { m.state = m.state === 'playing' ? 'paused' : 'playing'; });
+});
 /* brightness: drag or tap along the bar, sent on release */
 $('#lights').addEventListener('pointerdown', e => {
   const bar = e.target.closest('.dim'); if (!bar) return;
-  const l = home.lights[+bar.closest('.light').dataset.i]; if (!l?.available) return;
+  const l = homeLightAt(bar); if (!l?.available) return;
   bar.setPointerCapture(e.pointerId); homeHold = Date.now() + 1e4;
   const r = bar.getBoundingClientRect();
   const at = ev => Math.max(1, Math.min(100, Math.round(100 * (ev.clientX - r.left) / r.width)));
@@ -934,7 +970,7 @@ $('#lights').addEventListener('pointerdown', e => {
   const move = ev => { pct = at(ev); show(pct); };
   const up = () => {
     bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', up); bar.removeEventListener('pointercancel', up);
-    homeLight({ id: l.id, pct }, () => { l.on = true; l.pct = pct; });
+    homePost('/api/home/light', { id: l.id, pct }, () => { l.on = true; l.pct = pct; });
   };
   bar.addEventListener('pointermove', move); bar.addEventListener('pointerup', up); bar.addEventListener('pointercancel', up);
 });

@@ -94,11 +94,13 @@ WEATHER_LAT      = env('WEATHER_LAT')
 WEATHER_LON      = env('WEATHER_LON')
 TIMEZONE         = env('TZ', 'UTC')                   # as an add-on the Supervisor sets TZ to HA's zone
 # home view: lights the tablet may switch (light.* / switch.*, optional |Label), and plant sensors
-# HOME_LIGHTS=light.kitchen1_light|Kitchen 1,light.lantern
+# HOME_LIGHTS=light.kitchen1_light|Kitchen 1,light.lantern   (#Heading entries start a new group: #Kitchen,light.a,#Living room,light.b)
+# HOME_MEDIA=media_player.living_room_tv|Living room TV      (a play/pause button each)
 # HOME_PLANTS=Monstera|sensor.soil_moisture|sensor.soil_temp|sensor.soil_battery   (temp + battery optional)
 HOME_LIGHTS_TITLE = env('HOME_LIGHTS_TITLE', 'Lights')
 HOME_LIGHTS      = [x.strip() for x in env('HOME_LIGHTS').split(',') if x.strip()]
 HOME_PLANTS      = [x.strip() for x in env('HOME_PLANTS').split(',') if x.strip()]
+HOME_MEDIA       = [x.strip() for x in env('HOME_MEDIA').split(',') if x.strip()]
 PLANT_DRY        = float(env('PLANT_DRY', '20'))      # soil moisture % below which a plant shows as thirsty
 
 # ── tiny TTL cache ────────────────────────────────────────────────────────────
@@ -172,7 +174,7 @@ def api_config():
         'hasMusic': bool(HA_URL and HA_TOKEN and MUSIC_ENTITY),
         'musicMaxVolume': MUSIC_MAX_VOLUME,
         'hasPocket': bool(POCKET_URL),
-        'hasHome': bool(HA_URL and HA_TOKEN and (HOME_LIGHTS or HOME_PLANTS)),
+        'hasHome': bool(HA_URL and HA_TOKEN and (HOME_LIGHTS or HOME_PLANTS or HOME_MEDIA)),
         'pocketPinSet': bool(POCKET_PIN),
         'lists': LISTS,
     })
@@ -951,14 +953,25 @@ def api_music_action(action):
 
 # ── home (lights + plants via Home Assistant) ────────────────────────────────
 
-def _home_lights():
-    """{entity_id: label} from HOME_LIGHTS; only these can be switched from the tablet."""
-    out = {}
+def _home_groups():
+    """[(title, [(entity_id, label)])] from HOME_LIGHTS; a `#Title` entry starts a new group,
+    entries before the first one go under HOME_LIGHTS_TITLE. Empty groups are dropped."""
+    groups = [(HOME_LIGHTS_TITLE, [])]
     for spec in HOME_LIGHTS:
+        if spec.startswith('#'):
+            groups.append((spec[1:].strip(), []))
+            continue
         ent, _, label = spec.partition('|')
-        if ent.split('.', 1)[0] in ('light', 'switch'):
-            out[ent.strip()] = label.strip()
-    return out
+        if ent.strip().split('.', 1)[0] in ('light', 'switch'):
+            groups[-1][1].append((ent.strip(), label.strip()))
+    return [g for g in groups if g[1]]
+
+def _home_lights():
+    """{entity_id: label}; only these can be switched from the tablet."""
+    return {e: l for _, ents in _home_groups() for e, l in ents}
+
+def _home_media():
+    return {e.strip(): l.strip() for e, _, l in (x.partition('|') for x in HOME_MEDIA) if e.strip().startswith('media_player.')}
 
 def _num(st):
     try:
@@ -974,25 +987,31 @@ def _st(ent):
         app.logger.warning('home: %s: %s', ent, e)
         return {}
 
+def _light(ent, label):
+    st = _st(ent)
+    a = st.get('attributes', {})
+    modes = a.get('supported_color_modes') or []
+    return {'id': ent, 'name': label or a.get('friendly_name') or ha_title(ent), 'kind': ent.split('.', 1)[0],
+            'on': st.get('state') == 'on', 'available': st.get('state') not in (None, 'unavailable', 'unknown'),
+            'dimmable': ent.startswith('light.') and any(m != 'onoff' for m in modes),
+            'pct': round(a['brightness'] / 2.55) if a.get('brightness') is not None else None}
+
 def _home():
-    lights = []
-    for ent, label in _home_lights().items():
-        st = _st(ent)
-        a = st.get('attributes', {})
-        modes = a.get('supported_color_modes') or []
-        lights.append({'id': ent, 'name': label or a.get('friendly_name') or ha_title(ent),
-                       'on': st.get('state') == 'on', 'available': st.get('state') not in (None, 'unavailable', 'unknown'),
-                       'dimmable': ent.startswith('light.') and any(m != 'onoff' for m in modes),
-                       'pct': round(a['brightness'] / 2.55) if a.get('brightness') is not None else None})
+    groups = [{'title': t, 'lights': [_light(e, l) for e, l in ents]} for t, ents in _home_groups()]
+    media = []
+    for ent, label in _home_media().items():
+        st = _st(ent); a = st.get('attributes', {})
+        media.append({'id': ent, 'name': label or a.get('friendly_name') or ha_title(ent), 'state': st.get('state') or 'unavailable',
+                      'title': a.get('media_title'), 'app': a.get('app_name') or a.get('source')})
     plants = []
     for spec in HOME_PLANTS:
         name, *ents = [x.strip() for x in spec.split('|')]
         vals = [_num(_st(e)) if e else None for e in (ents + [None, None, None])[:3]]
         plants.append({'name': name, 'moisture': vals[0], 'temp': vals[1], 'battery': vals[2]})
-    return {'lightsTitle': HOME_LIGHTS_TITLE, 'lights': lights, 'plants': plants, 'plantDry': PLANT_DRY}
+    return {'groups': groups, 'media': media, 'plants': plants, 'plantDry': PLANT_DRY}
 
 def _home_required():
-    if not (HA_URL and HA_TOKEN and (HOME_LIGHTS or HOME_PLANTS)):
+    if not (HA_URL and HA_TOKEN and (HOME_LIGHTS or HOME_PLANTS or HOME_MEDIA)):
         abort(404)
 
 @app.route('/api/home')
@@ -1005,11 +1024,17 @@ def api_home():
 
 @app.route('/api/home/light', methods=['POST'])
 def api_home_light():
-    """{id, on} or {id, pct} for one light, or {all: on|dim|off} for every HOME_LIGHTS entry."""
+    """{id, on} or {id, pct} for one light, or {all: on|dim|off, group: n} for that group's lights
+    (light.* only: a switch such as a heater is never part of all-on)."""
     _home_required()
     body, allowed = request.get_json(silent=True) or {}, _home_lights()
     if body.get('all') in ('on', 'dim', 'off'):
-        targets, want = list(allowed), body['all']
+        groups = _home_groups()
+        try:
+            ents = groups[int(body.get('group', 0))][1]
+        except (ValueError, IndexError):
+            abort(404)
+        targets, want = [e for e, _ in ents if e.startswith('light.')], body['all']
     elif body.get('id') in allowed:
         targets = [body['id']]
         want = 'pct' if body.get('pct') is not None else ('on' if body.get('on') else 'off')
@@ -1024,6 +1049,17 @@ def api_home_light():
         else:
             pct = 100 if want == 'on' else 20 if want == 'dim' else max(1, min(100, int(body['pct'])))
             ha_service('light', 'turn_on', {'entity_id': ent, 'brightness_pct': pct, 'transition': 1})
+    invalidate('home')
+    return jsonify({'ok': True})
+
+@app.route('/api/home/media', methods=['POST'])
+def api_home_media():
+    """{id}: play/pause one HOME_MEDIA player."""
+    _home_required()
+    ent = (request.get_json(silent=True) or {}).get('id')
+    if ent not in _home_media():
+        abort(404)
+    ha_service('media_player', 'media_play_pause', {'entity_id': ent})
     invalidate('home')
     return jsonify({'ok': True})
 

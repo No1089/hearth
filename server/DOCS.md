@@ -60,8 +60,9 @@ own, so neither is an option.
 | `busy_label` | `On a call` | The text on the banner. |
 | `music_entity` | *(blank)* | A `media_player`, e.g. the kitchen Sonos. Blank: no Music tab. |
 | `music_max_volume` | `0.6` | Volume cap, 0 to 1. |
-| `home_lights_title` | `Lights` | Heading over the lights on the Home tab. |
-| `home_lights` | *(blank)* | Lights and switches the tablet may switch, `entity|Label`: `light.kitchen_ceiling|Ceiling,light.lantern`. Only these can be switched; dimmable lights get a slider. Blank with no plants: no Home tab. |
+| `home_lights_title` | `Lights` | Heading for the lights listed before the first `#Heading`. |
+| `home_lights` | *(blank)* | Lights and switches the tablet may switch, `entity|Label`: `light.kitchen_ceiling|Ceiling,light.lantern`. A `#Heading` entry starts a new room (`#Living room,light.sofa`); each room gets Off / Dim / All on, which touch its lights only, never a switch. Only these can be switched; dimmable lights get a slider. |
+| `home_media` | *(blank)* | Media players with a play/pause button, `entity|Label`. |
 | `home_plants` | *(blank)* | Plant sensors, `Name|moisture|temperature|battery`; temperature and battery are optional. |
 | `plant_dry` | `20` | Soil moisture (%) below which a plant shows "Needs water". |
 | `pocket_url` | *(blank)* | The pocket-money app. Blank: no Pocket tab. |

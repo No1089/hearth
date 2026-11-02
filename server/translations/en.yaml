@@ -31,10 +31,13 @@ configuration:
     description: The loudest the page will set the speaker, 0 to 1.
   home_lights_title:
     name: Lights heading
-    description: The heading over the lights on the Home tab, e.g. Kitchen lights.
+    description: Heading for the lights before the first `#Heading`, e.g. Kitchen.
   home_lights:
     name: Lights
-    description: "Lights and switches the tablet may turn on and off, `entity|Label`, comma-separated. Only these can be switched."
+    description: "Lights and switches the tablet may turn on and off, `entity|Label`, comma-separated; `#Heading` starts a new room. Only these can be switched."
+  home_media:
+    name: Play/pause buttons
+    description: "Media players with a play/pause button on the Home tab, `entity|Label`, comma-separated."
   home_plants:
     name: Plants
     description: "`Name|soil moisture|temperature|battery`, comma-separated; temperature and battery are optional."
