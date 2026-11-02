@@ -94,7 +94,8 @@ WEATHER_LAT      = env('WEATHER_LAT')
 WEATHER_LON      = env('WEATHER_LON')
 TIMEZONE         = env('TZ', 'UTC')                   # as an add-on the Supervisor sets TZ to HA's zone
 # home view: lights the tablet may switch (light.* / switch.*, optional |Label), and plant sensors
-# HOME_LIGHTS=light.kitchen1_light|Kitchen 1,light.lantern   (#Heading entries start a new group: #Kitchen,light.a,#Living room,light.b)
+# HOME_LIGHTS=light.kitchen1_light|Kitchen 1,light.lantern   (#Heading entries start a new group: #Kitchen,light.a,#Living room,light.b;
+#   light.a+light.b|Ceiling = one tile for lights on one circuit: only what all of them can do, state from light.a)
 # HOME_MEDIA=media_player.living_room_tv|Living room TV      (a play/pause button each)
 # HOME_PLANTS=Monstera|sensor.soil_moisture|sensor.soil_temp|sensor.soil_battery   (temp + battery optional)
 HOME_LIGHTS_TITLE = env('HOME_LIGHTS_TITLE', 'Lights')
@@ -962,6 +963,10 @@ def _home_groups():
             groups.append((spec[1:].strip(), []))
             continue
         ent, label, moon, sun = ([x.strip() for x in spec.split('|')] + ['', '', ''])[:4]
+        if '+' in ent:                               # several lights as one tile; the first one names it
+            members = [x.strip().lstrip('~') for x in ent.split('+') if x.strip()]
+            ent = ('~' if ent.startswith('~') else '') + members[0]
+            _MULTI[members[0]] = members
         if ent.lstrip('~').split('.', 1)[0] in ('light', 'switch'):
             groups[-1][1].append((ent, label))
             if moon.startswith('light.'):
@@ -972,6 +977,10 @@ def _home_groups():
 # The 4th field is the entity that leaves moonlight reliably (e.g. the Yeelight one when the main
 # entity comes through HomeKit, which doesn't know the mode); blank = the tile's own entity.
 _MOON = {}
+_MULTI = {}                                          # tile id -> every light it switches (`light.a+light.b`)
+
+def _members(ent):
+    return _MULTI.get(ent, [ent])
 
 def _solo(ent):
     """`~light.x`: a mode such as a ceiling's moonlight, left out of All on / Dim (Off still includes it)."""
@@ -1020,6 +1029,23 @@ def _light(ent, label):
         out['k'] = a['color_temp_kelvin']
     return out
 
+def _tile(ent, label):
+    """A tile's state; a merged tile is on if any member is, and offers only what every member supports."""
+    if ent not in _MULTI:
+        return _light(ent, label)
+    ls = [_light(e, '') for e in _MULTI[ent]]
+    out = {**ls[0], 'name': label or ls[0]['name'], 'members': _MULTI[ent],
+           'on': any(l['on'] for l in ls), 'available': any(l['available'] for l in ls),
+           'dimmable': all(l['dimmable'] for l in ls), 'colour': all(l['colour'] for l in ls),
+           'temps': all(l['temps'] for l in ls)}
+    lit = next((l for l in ls if l['on']), None)
+    out['pct'] = lit['pct'] if lit else None
+    for k in ('rgb', 'k'):
+        out.pop(k, None)
+    if not out['temps']:
+        out.pop('kelvin', None)
+    return out
+
 def _with_moon(l):
     """Fold a linked moonlight into its tile: mode 'moon' while it's on (pct = moonlight brightness)."""
     link = _MOON.get(l['id'])
@@ -1034,7 +1060,7 @@ def _with_moon(l):
     return l
 
 def _home():
-    groups = [{'title': t, 'lights': [_with_moon({**_light(e.lstrip('~'), l), 'solo': _solo(e)}) for e, l in ents]} for t, ents in _home_groups()]
+    groups = [{'title': t, 'lights': [_with_moon({**_tile(e.lstrip('~'), l), 'solo': _solo(e)}) for e, l in ents]} for t, ents in _home_groups()]
     media = []
     for ent, label in _home_media().items():
         st = _st(ent); a = st.get('attributes', {})
@@ -1072,10 +1098,13 @@ def api_home_light():
         except (ValueError, IndexError):
             abort(404)
         want = body['all']
-        targets = [e.lstrip('~') for e, _ in ents if e.lstrip('~').startswith('light.') and (want == 'off' or not _solo(e))]
+        targets = [m for e, _ in ents if e.lstrip('~').startswith('light.') and (want == 'off' or not _solo(e))
+                   for m in _members(e.lstrip('~'))]
     elif body.get('id') in allowed and body['id'].startswith('light.') and (body.get('rgb') or body.get('kelvin')):
+        if body['id'] in _MULTI and not _tile(body['id'], '').get('colour' if body.get('rgb') else 'temps'):
+            abort(400)                               # a merged tile only takes what all its lights can do
         ent = _MOON[body['id']][1] if body['id'] in _MOON else body['id']   # leaves moonlight too
-        data = {'entity_id': ent, 'transition': 1}
+        data = {'entity_id': _members(ent), 'transition': 1}
         if body.get('rgb'):
             rgb = [max(0, min(255, int(x))) for x in body['rgb']][:3]
             if len(rgb) != 3:
@@ -1098,7 +1127,7 @@ def api_home_light():
     elif body.get('rgb') or body.get('kelvin'):
         abort(400)                                   # colour for something that isn't a listed light
     elif body.get('id') in allowed:
-        targets = [body['id']]
+        targets = _members(body['id'])
         want = 'pct' if body.get('pct') is not None else ('on' if body.get('on') else 'off')
     else:
         abort(404)
