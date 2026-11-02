@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+
+- Home tab: lights that can change colour or white temperature get a colour
+  button next to their slider. It opens a swatch panel: whites (candle, warm,
+  neutral, cool; only those the light can do) and eight pastels.
+
 ## 1.3.0
 
 - Home tab: rooms (`#Heading` in `home_lights`), each with its own Off / Dim /

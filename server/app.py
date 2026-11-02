@@ -987,14 +987,24 @@ def _st(ent):
         app.logger.warning('home: %s: %s', ent, e)
         return {}
 
+COLOUR_MODES = ('hs', 'xy', 'rgb', 'rgbw', 'rgbww')
+
 def _light(ent, label):
     st = _st(ent)
     a = st.get('attributes', {})
     modes = a.get('supported_color_modes') or []
-    return {'id': ent, 'name': label or a.get('friendly_name') or ha_title(ent), 'kind': ent.split('.', 1)[0],
-            'on': st.get('state') == 'on', 'available': st.get('state') not in (None, 'unavailable', 'unknown'),
-            'dimmable': ent.startswith('light.') and any(m != 'onoff' for m in modes),
-            'pct': round(a['brightness'] / 2.55) if a.get('brightness') is not None else None}
+    out = {'id': ent, 'name': label or a.get('friendly_name') or ha_title(ent), 'kind': ent.split('.', 1)[0],
+           'on': st.get('state') == 'on', 'available': st.get('state') not in (None, 'unavailable', 'unknown'),
+           'dimmable': ent.startswith('light.') and any(m != 'onoff' for m in modes),
+           'pct': round(a['brightness'] / 2.55) if a.get('brightness') is not None else None,
+           'colour': any(m in COLOUR_MODES for m in modes), 'temps': 'color_temp' in modes}
+    if out['temps']:
+        out['kelvin'] = [a.get('min_color_temp_kelvin') or 2200, a.get('max_color_temp_kelvin') or 6500]
+    if out['on'] and a.get('color_mode') in COLOUR_MODES and a.get('rgb_color'):
+        out['rgb'] = a['rgb_color']
+    elif out['on'] and a.get('color_temp_kelvin'):
+        out['k'] = a['color_temp_kelvin']
+    return out
 
 def _home():
     groups = [{'title': t, 'lights': [_light(e, l) for e, l in ents]} for t, ents in _home_groups()]
@@ -1024,7 +1034,7 @@ def api_home():
 
 @app.route('/api/home/light', methods=['POST'])
 def api_home_light():
-    """{id, on} or {id, pct} for one light, or {all: on|dim|off, group: n} for that group's lights
+    """{id, on}, {id, pct}, {id, rgb: [r,g,b]} or {id, kelvin} for one light, or {all: on|dim|off, group: n} for that group's lights
     (light.* only: a switch such as a heater is never part of all-on)."""
     _home_required()
     body, allowed = request.get_json(silent=True) or {}, _home_lights()
@@ -1035,6 +1045,21 @@ def api_home_light():
         except (ValueError, IndexError):
             abort(404)
         targets, want = [e for e, _ in ents if e.startswith('light.')], body['all']
+    elif body.get('id') in allowed and body['id'].startswith('light.') and (body.get('rgb') or body.get('kelvin')):
+        ent, data = body['id'], {'entity_id': body['id'], 'transition': 1}
+        if body.get('rgb'):
+            rgb = [max(0, min(255, int(x))) for x in body['rgb']][:3]
+            if len(rgb) != 3:
+                abort(400)
+            data['rgb_color'] = rgb
+        else:
+            lo, hi = (_light(ent, '').get('kelvin') or [2000, 6500])
+            data['color_temp_kelvin'] = max(lo, min(hi, int(body['kelvin'])))
+        ha_service('light', 'turn_on', data)
+        invalidate('home')
+        return jsonify({'ok': True})
+    elif body.get('rgb') or body.get('kelvin'):
+        abort(400)                                   # colour for something that isn't a listed light
     elif body.get('id') in allowed:
         targets = [body['id']]
         want = 'pct' if body.get('pct') is not None else ('on' if body.get('on') else 'off')

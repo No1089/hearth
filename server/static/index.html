@@ -256,6 +256,25 @@ main { position: relative; min-height: 0; padding: .3em 1.2em 1.1em .2em; }
 .light .dim i { position: absolute; inset: 0 auto 0 0; width: 0; background: #f2b33d; opacity: .8; transition: width .15s; }
 .light:not(.on) .dim i { background: var(--faint); opacity: .35; }
 .light .dim b { position: absolute; right: .8em; top: 50%; transform: translateY(-50%); font-size: .85rem; color: var(--ink); }
+.light { position: relative; }
+.light .ctl { display: flex; gap: .5em; margin: 0 .7em .8em; }
+.light .ctl .dim { flex: 1; margin: 0; }
+.light .clr { width: 2.6em; height: 2.6em; border-radius: 12px; flex: none; margin-left: auto;
+  display: grid; place-items: center; background: var(--panel); }
+.light .clr i { width: 1.3em; height: 1.3em; border-radius: 50%; border: 2px solid var(--line);
+  background: conic-gradient(#ffb3c6, #ffe0a8, #fff3a8, #b8f2d0, #b3dcff, #d4c2ff, #ffb3c6); }
+.light .clr.wt i { background: linear-gradient(135deg, #ffb46b, #fff0dc 55%, #e6efff); }
+.swsheet { width: min(28em, 90vw); display: flex; flex-direction: column; gap: .9em; }
+.swsheet .hd { display: flex; align-items: center; gap: .5em; font-weight: 700; font-size: 1.15rem; }
+.swsheet .hd button { margin-left: auto; width: 2.2em; height: 2.2em; border-radius: 50%; background: var(--chip);
+  display: grid; place-items: center; color: var(--dim); }
+.swsheet h4 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+.swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: .7em; margin-top: .45em; }
+.swatch { display: flex; flex-direction: column; align-items: center; gap: .35em; font-size: .85rem; color: var(--dim); }
+.swatch span { width: 3.4em; height: 3.4em; border-radius: 50%; border: 2px solid var(--line); box-shadow: var(--shadow);
+  transition: transform .15s; }
+.swatch:active span { transform: scale(.9); }
+.swatch.cur span { outline: 3px solid var(--accent); outline-offset: 3px; }
 .plants { flex: 1; overflow-y: auto; padding: .2em .9em 1em; display: grid; gap: .8em; align-content: start; }
 .plant { border-radius: 16px; background: var(--chip); padding: .9em 1em; display: grid; gap: .45em;
   grid-template-columns: 1fr auto; align-items: center; }
@@ -443,6 +462,13 @@ body.night #toast button { color: #10201c; }
   </main>
 </div>
 
+<div id="colour" class="modal hidden">
+  <div class="sheet swsheet">
+    <div class="hd"><span id="colour-name"></span><button id="colour-close" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+    <div id="colour-whites"><h4>Whites</h4><div class="swatches" data-sw="kelvin"></div></div>
+    <div id="colour-pastels"><h4>Colours</h4><div class="swatches" data-sw="rgb"></div></div>
+  </div>
+</div>
 <div id="pin" class="modal hidden">
   <div class="sheet pinpad">
     <div class="pin-title" id="pin-title">Parent PIN</div>
@@ -536,6 +562,7 @@ function showSaver() {
   setSaverPanel(false);
   if (!$('#pin').classList.contains('hidden')) $('#pin').click();   // cancels a PIN prompt left open
   $('#ce-cancel').click();                                           // and the chore editor
+  closeColour();
   if (document.activeElement?.tagName === 'INPUT') document.activeElement.blur();
   mode = 'saver';
   $('#dash').classList.add('hidden');
@@ -908,10 +935,11 @@ function renderHome() {
     return `<div class="lgroup"><div class="lhead"><h2>${esc(g.title)}</h2>${dimmable ? `<span class="all">
         <button class="btn ghost" data-all="off" data-g="${gi}">Off</button><button class="btn ghost" data-all="dim" data-g="${gi}">Dim</button><button class="btn" data-all="on" data-g="${gi}">All on</button></span>` : ''}</div>
       <div class="lgrid">${g.lights.map((l, i) => `
-        <div class="light${l.on ? ' on' : ''}${l.available ? '' : ' na'}" data-i="${gi}-${i}">
+        <div class="light${l.on ? ' on' : ''}${l.available ? '' : ' na'}${l.colour || l.temps ? ' has-clr' : ''}" data-i="${gi}-${i}">
           <button class="tap"><span class="ic">${icon(l.kind === 'switch' ? 'i-power' : 'i-bulb')}</span><span><div class="nm">${esc(l.name)}</div>
             <div class="st">${!l.available ? 'Unavailable' : l.on ? (l.pct != null ? l.pct + '%' : 'On') : 'Off'}</div></span></button>
-          ${l.dimmable ? `<div class="dim"><i style="width:${l.on ? (l.pct ?? 100) : 0}%"></i><b>${l.on ? (l.pct ?? 100) + '%' : ''}</b></div>` : ''}
+          ${l.dimmable || l.colour || l.temps ? `<div class="ctl">${l.dimmable ? `<div class="dim"><i style="width:${l.on ? (l.pct ?? 100) : 0}%"></i><b>${l.on ? (l.pct ?? 100) + '%' : ''}</b></div>` : ''}${l.colour || l.temps
+            ? `<button class="clr${l.colour ? '' : ' wt'}" aria-label="Colour"><i${l.on && (l.rgb || l.k) ? ` style="background:${l.rgb ? `rgb(${l.rgb})` : kelvinCss(l.k)}"` : ''}></i></button>` : ''}</div>` : ''}
         </div>`).join('')}</div></div>`;
   }).join('') || '<div class="none">No lights set (HOME_LIGHTS)</div>';
   const media = home.media || [];
@@ -958,6 +986,44 @@ $('#media').addEventListener('click', e => {
   const m = home.media[+b.dataset.m];
   homePost('/api/home/media', { id: m.id }, () => { m.state = m.state === 'playing' ? 'paused' : 'playing'; });
 });
+/* colour: whites for colour-temperature lights, pastels for colour lights */
+const WHITES = [[2200, 'Candle'], [2700, 'Warm'], [4000, 'Neutral'], [6000, 'Cool']];
+const PASTELS = [['#ffb3c6', 'Blush'], ['#ffcfa8', 'Peach'], ['#fff1a8', 'Butter'], ['#b8f2d0', 'Mint'],
+                 ['#b3dcff', 'Sky'], ['#d4c2ff', 'Lavender'], ['#f5c2ef', 'Lilac'], ['#b0efe9', 'Aqua']];
+const KCOL = [[2200, [255, 180, 107]], [2700, [255, 205, 145]], [4000, [255, 238, 214]], [6000, [232, 240, 255]]];
+function kelvinCss(k) {                                   // swatch colour for a white temperature
+  let i = KCOL.findIndex(([kk]) => kk >= k); if (i <= 0) i = i < 0 ? KCOL.length - 1 : 1;
+  const [[k0, c0], [k1, c1]] = [KCOL[i - 1], KCOL[i]], t = Math.max(0, Math.min(1, (k - k0) / (k1 - k0)));
+  return `rgb(${c0.map((v, j) => Math.round(v + (c1[j] - v) * t))})`;
+}
+const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+let colourLight = null;
+function openColour(l) {
+  colourLight = l;
+  $('#colour-name').textContent = l.name;
+  $('#colour-whites').classList.toggle('hidden', !l.temps);
+  $('#colour-pastels').classList.toggle('hidden', !l.colour);
+  const [lo, hi] = l.kelvin || [2200, 6500];
+  $('[data-sw="kelvin"]').innerHTML = WHITES.filter(([k]) => k >= lo - 100 && k <= hi + 100)
+    .map(([k, n]) => `<button class="swatch${l.k && Math.abs(l.k - k) < 150 && !l.rgb ? ' cur' : ''}" data-k="${k}"><span style="background:${kelvinCss(k)}"></span>${n}</button>`).join('');
+  $('[data-sw="rgb"]').innerHTML = PASTELS.map(([h, n]) => `<button class="swatch" data-rgb="${h}"><span style="background:${h}"></span>${n}</button>`).join('');
+  $('#colour').classList.remove('hidden');
+  homeHold = Date.now() + 6e4;
+}
+function closeColour() { $('#colour').classList.add('hidden'); colourLight = null; homeHold = 0; }
+$('#colour-close').addEventListener('click', closeColour);
+$('#colour').addEventListener('click', e => {
+  if (e.target.id === 'colour') return closeColour();
+  const b = e.target.closest('.swatch'); if (!b || !colourLight) return;
+  const l = colourLight, body = b.dataset.k ? { id: l.id, kelvin: +b.dataset.k } : { id: l.id, rgb: hexRgb(b.dataset.rgb) };
+  closeColour();
+  homePost('/api/home/light', body, () => { l.on = true; if (body.kelvin) { l.k = body.kelvin; l.rgb = null; } else { l.rgb = body.rgb; l.k = null; } if (l.pct == null) l.pct = 100; });
+});
+$('#lights').addEventListener('click', e => {
+  const c = e.target.closest('.clr'); if (!c) return;
+  const l = homeLightAt(c); if (l?.available) openColour(l);
+}, true);
+
 /* brightness: drag or tap along the bar, sent on release */
 $('#lights').addEventListener('pointerdown', e => {
   const bar = e.target.closest('.dim'); if (!bar) return;

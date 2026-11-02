@@ -61,7 +61,7 @@ own, so neither is an option.
 | `music_entity` | *(blank)* | A `media_player`, e.g. the kitchen Sonos. Blank: no Music tab. |
 | `music_max_volume` | `0.6` | Volume cap, 0 to 1. |
 | `home_lights_title` | `Lights` | Heading for the lights listed before the first `#Heading`. |
-| `home_lights` | *(blank)* | Lights and switches the tablet may switch, `entity|Label`: `light.kitchen_ceiling|Ceiling,light.lantern`. A `#Heading` entry starts a new room (`#Living room,light.sofa`); each room gets Off / Dim / All on, which touch its lights only, never a switch. Only these can be switched; dimmable lights get a slider. |
+| `home_lights` | *(blank)* | Lights and switches the tablet may switch, `entity|Label`: `light.kitchen_ceiling|Ceiling,light.lantern`. A `#Heading` entry starts a new room (`#Living room,light.sofa`); each room gets Off / Dim / All on, which touch its lights only, never a switch. Only these can be switched; dimmable lights get a slider, and lights with colour or white temperature a swatch panel. |
 | `home_media` | *(blank)* | Media players with a play/pause button, `entity|Label`. |
 | `home_plants` | *(blank)* | Plant sensors, `Name|moisture|temperature|battery`; temperature and battery are optional. |
 | `plant_dry` | `20` | Soil moisture (%) below which a plant shows "Needs water". |
