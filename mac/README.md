@@ -15,18 +15,25 @@ this asks it.
 
 ## How it detects a call
 
-macOS keeps a flag per capture device, "is running somewhere", that is set
-while *any* process has the device open. The agent polls it every two seconds:
+The agent polls every two seconds:
 
-- **Cameras** via Core Media I/O:
-  `CMIOObjectGetPropertyData(device, kCMIODevicePropertyDeviceIsRunningSomewhere)`
-- **Microphones** via Core Audio:
-  `AudioObjectGetPropertyData(device, kAudioDevicePropertyDeviceIsRunningSomewhere)`,
-  for devices that have at least one input stream.
+- **Cameras** via Core Media I/O: the flag macOS keeps per camera, "is running
+  somewhere", set while *any* process has it open
+  (`kCMIODevicePropertyDeviceIsRunningSomewhere`).
+- **Microphones** via Core Audio's process objects (macOS 14 and later): a
+  process with `kAudioProcessPropertyIsRunningInput` set is recording, and
+  `kAudioProcessPropertyDevices` in the input scope says from what. Not the
+  device flag the cameras use: a headset is one device in both directions, so
+  that flag is just as set while AirPods only play music. Before macOS 14 the
+  agent falls back to it, on devices with an input stream, and has that flaw.
 
 Neither needs the camera or microphone permission. The agent never captures
-anything; it reads one integer per device. It can't tell which app is using
-the device, and it doesn't try.
+anything; it reads flags. It doesn't report which app is using a device.
+
+Between polls it runs the run loop instead of sleeping, because Core Media I/O
+delivers its changes there. A process that only sleeps keeps the camera list it
+started with, and a camera that was running when its driver went away stays
+"running" in it until the process restarts.
 
 Rules, chosen for a kitchen rather than a security product:
 
@@ -70,9 +77,20 @@ reads PipeWire's running capture streams and open `/dev/video*` devices.
 Command Line Tools), puts the binary in
 `~/Library/Application Support/hearth/`, and registers a LaunchAgent
 `dev.hearth.busy-agent` with `KeepAlive`, so it restarts if it ever crashes.
-It logs to `~/Library/Logs/hearth-busy-agent.log`: one line per state change,
-and a single line when reports start or stop getting through. If macOS asks
-whether busy-agent may find devices on the local network, say yes.
+It logs to `~/Library/Logs/hearth-busy-agent.log`: one line whenever the
+state or the busy devices change, a single line when reports start or stop
+getting through, and one when a camera or microphone driver stops answering.
+
+Hearth is on the local network, so macOS asks whether busy-agent may find
+devices on it; say yes, or allow it later under System Settings → Privacy &
+Security → Local Network. Until then every report fails with "The Internet
+connection appears to be offline". An unsigned build is a new program to
+macOS each time it is built, so an update asks again. Signing it with any
+code signing identity you have keeps the answer:
+
+```sh
+SIGN_IDENTITY="My Code Signing Cert" ./install.sh https://hearth.example.com
+```
 
 Run it by hand to see what it sees:
 
@@ -80,6 +98,17 @@ Run it by hand to see what it sees:
 ~/Library/Application\ Support/hearth/busy-agent https://hearth.example.com --once
 # cameras in use: ["Brio 500"], mics in use: [] → busy=true
 ```
+
+## When the banner sticks
+
+Read the log first: it names the device it thinks is busy.
+
+- **FUJIFILM X Webcam** (camera extension 2.2.0.1) can deadlock while a call
+  stops its stream. Its camera then reads as in use until the extension is
+  restarted, and any app that opens the camera list afresh, `--once`
+  included, hangs. Restart it, and macOS starts it again on demand:
+  `pkill -f com.fujifilm.XWebcam.CameraExtension`
+- A virtual camera that is always "running": add it with `--ignore`.
 
 ## What it sends, and what it doesn't
 

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Build busy-agent and run it at login as a LaunchAgent.
 #   ./install.sh https://hearth.example.com        install / update
+#   SIGN_IDENTITY="My Cert" ./install.sh <url>     signed, so macOS keeps its Local Network answer
 #   ./install.sh --uninstall
 set -e
 LABEL=dev.hearth.busy-agent
@@ -14,6 +15,9 @@ URL="${1:?usage: ./install.sh <hearth url>}"
 cd "$(dirname "$0")"
 mkdir -p "$(dirname "$BIN")"
 swiftc -O busy-agent.swift -o "$BIN"
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  codesign --force -s "$SIGN_IDENTITY" -i "$LABEL" "$BIN"
+fi
 cat > "$PLIST" <<PL
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
