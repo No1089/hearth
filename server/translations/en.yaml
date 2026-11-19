@@ -29,6 +29,12 @@ configuration:
   music_max_volume:
     name: Volume cap
     description: The loudest the page will set the speaker, 0 to 1.
+  music_speakers:
+    name: Rooms
+    description: Sonos players to pick from, `entity|Label`, comma-separated. Any mix can be picked; they are grouped.
+  ha_alerts:
+    name: Alerts
+    description: Entities that put up a small pill while they are on, `entity|Label`, e.g. a load-shed flag.
   home_lights_title:
     name: Lights heading
     description: Heading for the lights before the first `#Heading`, e.g. Kitchen.

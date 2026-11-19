@@ -79,7 +79,8 @@ used to prove the protocol from a laptop before any Kotlin was written.
 | **Shopping** | Tick things off and they return as one-tap "bought before" buttons. **×** removes mistakes, with undo. Prints. |
 | **To do** | Every section of the todo app as tabs, Home and Kids first, with done-before suggestions. |
 | **Pocket** | Balance and saving goals per kid. Kids tick their own chores, and a parent PIN adds the day. Prints a receipt. |
-| **Music** | The kitchen Sonos through Home Assistant, with favourites and a volume cap. |
+| **Music** | Sonos through Home Assistant: pick any mix of rooms (grouped), favourites and a volume cap. |
+| **Alerts** | A small pill while a Home Assistant flag is on, e.g. the geyser shed for load. |
 | **Busy** | Red "on a call" banner, from `mac/busy-agent` or any Home Assistant sensor. |
 
 The page reloads itself after a deploy. It wakes the screen when the busy

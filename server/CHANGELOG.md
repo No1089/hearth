@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.7.0
+
+- Music: `music_speakers` adds a room picker to the Music tab. Any mix of
+  rooms can be picked; Sonos groups them, the group's coordinator stays in
+  charge when it is still picked (so playing music spreads), and the volume
+  buttons move every picked room by the same step.
+- `ha_alerts`: a small amber pill in the dashboard header and on the picture
+  screen while an entity is on, e.g. the geyser being shed for load.
+
 ## 1.6.0
 
 - Sun/moon button: `entity|Label|moonlight entity|daylight entity` folds a

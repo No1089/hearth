@@ -60,6 +60,8 @@ own, so neither is an option.
 | `busy_label` | `On a call` | The text on the banner. |
 | `music_entity` | *(blank)* | A `media_player`, e.g. the kitchen Sonos. Blank: no Music tab. |
 | `music_max_volume` | `0.6` | Volume cap, 0 to 1. |
+| `music_speakers` | *(blank)* | Rooms the Music tab can play in, `entity|Label`: `media_player.kitchen|Kitchen,media_player.living|Living room`. Tap rooms to add or drop them; Sonos groups them, and music already playing spreads to the new rooms. One volume control moves every picked room by the same step. Blank: `music_entity` alone. |
+| `ha_alerts` | *(blank)* | A small pill on the dashboard header and the picture screen while one of these is `on`, `entity|Label`: `input_boolean.geyser_load_shed|Geyser off · load shed`. |
 | `home_lights_title` | `Lights` | Heading for the lights listed before the first `#Heading`. |
 | `home_lights` | *(blank)* | Lights and switches the tablet may switch, `entity|Label`: `light.kitchen_ceiling|Ceiling,light.lantern`. A `#Heading` entry starts a new room (`#Living room,light.sofa`); each room gets Off / Dim / All on, which touch its lights only, never a switch; a `~` in front (`~light.ceiling_moonlight`) keeps a mode light out of All on and Dim. `light.ceiling|Ceiling|light.ceiling_moonlight|light.ceiling_lan` gives the tile a sun/moon button; the last field (optional) is the entity that leaves moonlight. Only these can be switched; dimmable lights get a slider, and lights with colour or white temperature a swatch panel. |
 | `home_media` | *(blank)* | Media players with a play/pause button, `entity|Label`. |

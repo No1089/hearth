@@ -17,7 +17,9 @@ to-dos, office "busy" banner). This server only aggregates; it owns no data:
 - slideshow → frame-art gallery JSON + an immich album (proxied, key stays here)
               + a folder of pictures (IMAGE_DIR)
 - weather   → open-meteo
-- music     → one Home Assistant media_player (the kitchen Sonos) + its favourites
+- music     → Home Assistant Sonos players: pick the rooms (they are grouped) + favourites
+- alerts    → Home Assistant entities that put up a small pill while they are on
+              (e.g. the geyser being shed for load)
 """
 
 import hmac, json, os, random, threading, time, urllib.error, urllib.parse, urllib.request
@@ -90,6 +92,11 @@ IMMICH_ALBUM_IDS = [a.strip() for a in env('IMMICH_ALBUM_IDS').split(',') if a.s
 IMAGE_DIR        = env('IMAGE_DIR')                   # a folder of pictures; a subfolder's name is its caption
 MUSIC_ENTITY     = env('MUSIC_ENTITY')
 MUSIC_MAX_VOLUME = float(env('MUSIC_MAX_VOLUME', '0.6'))
+# MUSIC_SPEAKERS=media_player.kitchen|Kitchen,media_player.living|Living room: rooms the music tab can play in
+#   (any mix of them; Sonos groups them). Empty = MUSIC_ENTITY alone. MUSIC_ENTITY is the default room.
+MUSIC_SPEAKERS   = [x.strip() for x in env('MUSIC_SPEAKERS').split(',') if x.strip()]
+# HA_ALERTS=input_boolean.geyser_load_shed|Geyser off · load shed: a pill on both screens while the entity is on
+HA_ALERTS        = [x.strip() for x in env('HA_ALERTS').split(',') if x.strip()]
 WEATHER_LAT      = env('WEATHER_LAT')
 WEATHER_LON      = env('WEATHER_LON')
 TIMEZONE         = env('TZ', 'UTC')                   # as an add-on the Supervisor sets TZ to HA's zone
@@ -288,12 +295,27 @@ def api_state():
             out['wake'] = cached('wake', 3, _wake, stale_ok=30)   # e.g. kitchen occupancy → page wakes the screen
         except Exception:
             pass
+    if HA_URL and HA_TOKEN and HA_ALERTS:
+        try:
+            out['alerts'] = cached('alerts', 5, _alerts, stale_ok=60)
+        except Exception:
+            out['alerts'] = []
     if _where():
         try:
             out['weather'] = cached('weather', 600, _weather)
         except Exception:
             out['weather'] = None
     return jsonify(out)
+
+def _alerts():
+    out = []
+    for spec in HA_ALERTS:
+        ent, _, label = (x.strip() for x in spec.partition('|'))
+        st = ha(f'/api/states/{ent}', timeout=3)
+        if st and st.get('state') == 'on':
+            out.append({'id': ent, 'label': label or st.get('attributes', {}).get('friendly_name') or ha_title(ent),
+                        'since': st.get('last_changed')})
+    return out
 
 # ── calendar ──────────────────────────────────────────────────────────────────
 
@@ -854,13 +876,45 @@ def _favourites():
                              'thumb': k.get('thumbnail') if (k.get('thumbnail') or '').startswith('https://') else None})
     return favs
 
+def _speakers():
+    """{entity_id: label} for the room picker, in MUSIC_SPEAKERS order."""
+    out = {e.strip(): l.strip() for e, _, l in (x.partition('|') for x in MUSIC_SPEAKERS) if e.strip().startswith('media_player.')}
+    return out or {MUSIC_ENTITY: ''}
+
+def _target_file():
+    return DATA_DIR / 'music.json'
+
+def _target():
+    """The speaker the controls go to: one of the picked rooms (Sonos passes them on to the group)."""
+    try:
+        t = json.loads(_target_file().read_text()).get('target')
+    except (OSError, ValueError):
+        t = None
+    sp = _speakers()
+    return t if t in sp else (MUSIC_ENTITY if MUSIC_ENTITY in sp else next(iter(sp)))
+
+def _set_target(ent):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _target_file().write_text(json.dumps({'target': ent}))
+
+def _group(st, ent):
+    """Members of ent's Sonos group (coordinator first), as HA reports them."""
+    return (st.get('attributes', {}).get('group_members') or [ent]) if st else [ent]
+
 def _music():
-    st = ha(f'/api/states/{MUSIC_ENTITY}')
+    target, sp = _target(), _speakers()
+    states = {e: ha(f'/api/states/{e}') for e in sp}
+    st = states[target]
     a = st.get('attributes', {})
-    return {'state': st.get('state'), 'name': a.get('friendly_name'),
+    group = [m for m in _group(st, target) if m in sp]
+    vols = [states[m].get('attributes', {}).get('volume_level') for m in group]
+    vols = [v for v in vols if v is not None]
+    return {'state': st.get('state'), 'name': ' + '.join(sp[m] or states[m].get('attributes', {}).get('friendly_name', m) for m in group),
             'title': a.get('media_title'), 'artist': a.get('media_artist'),
-            'album': a.get('media_album_name'), 'volume': a.get('volume_level'),
+            'album': a.get('media_album_name'), 'volume': sum(vols) / len(vols) if vols else a.get('volume_level'),
             'muted': a.get('is_volume_muted'), 'source': a.get('source'),
+            'speakers': [{'id': e, 'name': l or states[e].get('attributes', {}).get('friendly_name', e),
+                          'on': e in group, 'off': states[e].get('state') in (None, 'unavailable')} for e, l in sp.items()],
             'art': f"/api/music/art?v={urllib.parse.quote(a['entity_picture'])}" if a.get('entity_picture') else None}
 
 def _music_required():
@@ -890,7 +944,7 @@ def api_music_art():
     # only the speaker's own artwork proxy, which needs the HA token
     _music_required()
     path = request.args.get('v', '')
-    if not path.startswith(f'/api/media_player_proxy/{MUSIC_ENTITY}'):
+    if not any(path.startswith(f'/api/media_player_proxy/{e}?') for e in _speakers()):
         abort(404)
     req = urllib.request.Request(f'{HA_URL}{path}', headers={'Authorization': f'Bearer {HA_TOKEN}'})
     try:
@@ -933,14 +987,25 @@ def api_music_thumb():
 def api_music_action(action):
     _music_required()
     body = request.json or {}
-    ent = {'entity_id': MUSIC_ENTITY}
+    target = _target()
+    ent = {'entity_id': target}
     if action in ('play', 'pause', 'play_pause', 'next', 'previous'):
         svc = {'play': 'media_play', 'pause': 'media_pause', 'play_pause': 'media_play_pause',
                'next': 'media_next_track', 'previous': 'media_previous_track'}[action]
         ha_service('media_player', svc, ent)
     elif action == 'volume':
+        # one slider for the whole group: every room moves by the same step, so their balance stays
         level = max(0.0, min(MUSIC_MAX_VOLUME, float(body.get('level', 0))))
-        ha_service('media_player', 'volume_set', {**ent, 'volume_level': round(level, 2)})
+        sp = _speakers()
+        group = [m for m in _group(ha(f'/api/states/{target}'), target) if m in sp]
+        vols = {m: ha(f'/api/states/{m}').get('attributes', {}).get('volume_level') for m in group}
+        vols = {m: v for m, v in vols.items() if v is not None} or {target: level}
+        delta = level - sum(vols.values()) / len(vols)
+        for m, v in vols.items():
+            ha_service('media_player', 'volume_set', {'entity_id': m,
+                       'volume_level': round(max(0.0, min(MUSIC_MAX_VOLUME, v + delta)), 2)})
+    elif action == 'speakers':
+        _set_speakers(body.get('ids'))
     elif action == 'favourite':
         fav = next((f for f in cached('favourites', 600, _favourites) if f['id'] == body.get('id')), None)
         if not fav:
@@ -951,6 +1016,28 @@ def api_music_action(action):
         abort(404)
     invalidate('music')
     return jsonify({'ok': True})
+
+def _set_speakers(ids):
+    """Group exactly these rooms. The group's current coordinator stays in charge when it is
+    still picked, so music already playing carries on and simply spreads to the new rooms."""
+    sp = _speakers()
+    ids = list(dict.fromkeys(i for i in (ids if isinstance(ids, list) else []) if i in sp))
+    if not ids:
+        abort(400)
+    target = _target()
+    old = [m for m in _group(ha(f'/api/states/{target}'), target) if m in sp]
+    leader = old[0] if old and old[0] in ids else (target if target in ids else ids[0])
+    lgroup = [m for m in _group(ha(f'/api/states/{leader}'), leader) if m in sp]
+    others = [i for i in ids if i != leader]
+    if others:                                   # HA takes a grouped non-coordinator out of its group first
+        ha_service('media_player', 'join', {'entity_id': leader, 'group_members': others})
+    elif len(lgroup) > 1 and lgroup[0] != leader:
+        ha_service('media_player', 'unjoin', {'entity_id': leader})
+    # drop rooms that were in either group but aren't picked; members before coordinators
+    for m in dict.fromkeys(old[1:] + lgroup[1:] + old[:1] + lgroup[:1]):
+        if m not in ids:
+            ha_service('media_player', 'unjoin', {'entity_id': m})
+    _set_target(leader)
 
 # ── home (lights + plants via Home Assistant) ────────────────────────────────
 
