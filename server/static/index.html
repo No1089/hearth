@@ -44,6 +44,9 @@ body.busy #busy { transform: translateY(0); }
 .alerts .al svg { font-size: 1.15em; }
 .alerts .al small { font-weight: 500; opacity: .85; }
 #saver-alerts { position: absolute; z-index: 3; top: 1.1em; left: 50%; transform: translateX(-50%); font-size: 1.15rem; }
+/* during a call the banner owns the top-right corner: alerts drop to just below it (banner ≈ 4.25rem tall) */
+body.busy #saver-alerts, body.busy #dash-alerts { position: fixed; z-index: 50; left: auto; right: 16px; transform: none;
+  top: calc(16px + 4.25rem + .5rem); justify-content: flex-end; font-size: 1rem; }
 @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.75); } }
 
 /* ── screensaver ──────────────────────────────────────── */
