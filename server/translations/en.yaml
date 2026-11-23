@@ -59,6 +59,9 @@ configuration:
   art_url:
     name: frame-art gallery
     description: A frame-art gallery for the slideshow.
+  season_share:
+    name: Seasonal share
+    description: Percent of the slideshow given to paintings in frame-art's monthly theme (0 = no preference, max 90). Each is shown up to 8 times per round.
   immich_url:
     name: immich server
     description: An immich server for the slideshow. The key stays in the app.

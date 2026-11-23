@@ -5,7 +5,7 @@
 # (lists comma-joined, blanks skipped), so there is no run script. What each option
 # does is in DOCS.md.
 name: Hearth
-version: "1.7.0"
+version: "1.8.0"
 slug: hearth
 description: "Kitchen wall dashboard for a spare tablet: paintings, the week, shopping list, to-dos, pocket money, the speaker and an on-a-call banner"
 url: https://github.com/No1089/hearth
@@ -58,6 +58,7 @@ options:
   pocket_url: ""
   pocket_pin: ""
   art_url: ""
+  season_share: 0
   immich_url: ""
   immich_api_key: ""
   immich_album_ids: ""
@@ -86,6 +87,7 @@ schema:
   pocket_url: "str?"
   pocket_pin: "password?"
   art_url: "str?"
+  season_share: "int(0,90)"
   immich_url: "str?"
   immich_api_key: "password?"
   immich_album_ids: "str?"

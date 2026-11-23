@@ -70,6 +70,7 @@ own, so neither is an option.
 | `pocket_url` | *(blank)* | The pocket-money app. Blank: no Pocket tab. |
 | `pocket_pin` | *(blank)* | Parent PIN that credits a pocket-money day and edits chores. |
 | `art_url` | *(blank)* | A frame-art gallery for the slideshow. |
+| `season_share` | `0` | Percent of the slideshow given to paintings in the gallery's monthly theme (frame-art's `season` field), e.g. `50` for snow scenes every other slide in winter. There are usually far fewer of them, so each repeats, up to 8 times per round, never back to back. `0` shuffles everything evenly. |
 | `immich_url` | *(blank)* | An immich server for the slideshow. The key stays in the add-on; the page never sees it. |
 | `immich_api_key` | *(blank)* | Its API key. |
 | `immich_album_ids` | *(blank)* | Album ids to show. |

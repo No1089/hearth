@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.8.0
+
+- Slideshow: `season_share` gives the paintings in frame-art's monthly theme
+  (its new `season` field, e.g. snow scenes for "winter light") a percentage
+  of the slides. They repeat, up to 8 times a round, spread evenly and never
+  back to back. Default 0 keeps the old even shuffle.
+
 ## 1.7.0
 
 - Music: `music_speakers` adds a room picker to the Music tab. Any mix of

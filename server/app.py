@@ -90,6 +90,7 @@ IMMICH_URL       = env('IMMICH_URL').rstrip('/')
 IMMICH_API_KEY   = env('IMMICH_API_KEY')
 IMMICH_ALBUM_IDS = [a.strip() for a in env('IMMICH_ALBUM_IDS').split(',') if a.strip()]
 IMAGE_DIR        = env('IMAGE_DIR')                   # a folder of pictures; a subfolder's name is its caption
+SEASON_SHARE     = min(90.0, max(0.0, float(env('SEASON_SHARE', '0'))))  # % of slides for the month's seasonal paintings
 MUSIC_ENTITY     = env('MUSIC_ENTITY')
 MUSIC_MAX_VOLUME = float(env('MUSIC_MAX_VOLUME', '0.6'))
 # MUSIC_SPEAKERS=media_player.kitchen|Kitchen,media_player.living|Living room: rooms the music tab can play in
@@ -756,7 +757,8 @@ def _art():
     works = http_json(f'{ART_URL}/api/works')
     return [{'kind': 'art', 'src': f"{ART_URL}/img/{urllib.parse.quote(w['id'])}",
              'title': w.get('title', ''), 'artist': w.get('artist', ''),
-             'date': w.get('date', ''), 'museum': w.get('museum', '')} for w in works]
+             'date': w.get('date', ''), 'museum': w.get('museum', ''),
+             'season': w.get('season', '')} for w in works]
 
 def _immich_assets():
     hdr = {'x-api-key': IMMICH_API_KEY, 'Accept': 'application/json'}
@@ -812,8 +814,34 @@ def api_slides():
             slides += cached('images', 600, _image_dir)
         except Exception:
             pass
-    random.shuffle(slides)
-    return jsonify(slides)
+    return jsonify(_season_mix(slides, SEASON_SHARE))
+
+def _season_mix(slides, share):
+    """Shuffle, giving paintings in the month's theme (frame-art's `season`) about
+    `share` % of the slots. There are far fewer of them than everything else, so
+    each is repeated, up to 8 times; copies are spread evenly, never back to back."""
+    seasonal = [s for s in slides if s.get('season')]
+    rest = [s for s in slides if not s.get('season')]
+    if share <= 0 or not seasonal or not rest:
+        random.shuffle(slides)
+        return slides
+    wanted = share / (100 - share) * len(rest)
+    copies = max(1, min(8, round(wanted / len(seasonal))))
+    stream = []
+    for _ in range(copies):
+        batch = random.sample(seasonal, len(seasonal))
+        if stream and len(batch) > 1 and batch[0] is stream[-1]:
+            batch[0], batch[-1] = batch[-1], batch[0]
+        stream += batch
+    random.shuffle(rest)
+    # Bresenham-style merge: seasonal slides land evenly through the sequence.
+    out, total, placed = [], len(stream) + len(rest), 0
+    for i in range(total):
+        if placed < len(stream) and (placed + 1) * total <= (i + 1) * len(stream):
+            out.append(stream[placed]); placed += 1
+        else:
+            out.append(rest[i - placed])
+    return out
 
 @app.route('/api/image/<path:name>')
 def api_image(name):
