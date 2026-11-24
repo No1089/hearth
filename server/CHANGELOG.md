@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.10.0
+
+- Home tab: `home_patterns` lights (e.g. the Snowflake) show their running
+  pattern on the tile, and the colour panel offers the patterns, strong colours
+  and what is running now (pattern, colour, brightness).
+- Night button (with `home_night_keep`): tap twice to switch off every Home light
+  and switch except the night lamps listed.
+
 ## 1.9.0
 
 - Recipes tab. Paste a recipe link and it is read from the page's own recipe

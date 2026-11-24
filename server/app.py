@@ -110,6 +110,10 @@ HOME_LIGHTS_TITLE = env('HOME_LIGHTS_TITLE', 'Lights')
 HOME_LIGHTS      = [x.strip() for x in env('HOME_LIGHTS').split(',') if x.strip()]
 HOME_PLANTS      = [x.strip() for x in env('HOME_PLANTS').split(',') if x.strip()]
 HOME_MEDIA       = [x.strip() for x in env('HOME_MEDIA').split(',') if x.strip()]
+# HOME_NIGHT_KEEP=light.bedroom_lamp,light.bedside   (the Night button turns every other HOME_LIGHTS entry off)
+HOME_NIGHT_KEEP  = {x.strip() for x in env('HOME_NIGHT_KEEP').split(',') if x.strip()}
+# HOME_PATTERNS=light.snowflake   (lights whose effects are offered as patterns; others' effects, e.g. strobes, stay hidden)
+HOME_PATTERNS    = {x.strip() for x in env('HOME_PATTERNS').split(',') if x.strip()}
 PLANT_DRY        = float(env('PLANT_DRY', '20'))      # soil moisture % below which a plant shows as thirsty
 
 # ── tiny TTL cache ────────────────────────────────────────────────────────────
@@ -184,6 +188,7 @@ def api_config():
         'musicMaxVolume': MUSIC_MAX_VOLUME,
         'hasPocket': bool(POCKET_URL),
         'hasHome': bool(HA_URL and HA_TOKEN and (HOME_LIGHTS or HOME_PLANTS or HOME_MEDIA)),
+        'hasNight': bool(HOME_NIGHT_KEEP),
         'pocketPinSet': bool(POCKET_PIN),
         'lists': LISTS,
         'hasClaude': bool(ANTHROPIC_API_KEY),
@@ -1142,6 +1147,9 @@ def _light(ent, label):
            'colour': any(m in COLOUR_MODES for m in modes), 'temps': 'color_temp' in modes}
     if out['temps']:
         out['kelvin'] = [a.get('min_color_temp_kelvin') or 2200, a.get('max_color_temp_kelvin') or 6500]
+    if ent in HOME_PATTERNS and a.get('effect_list'):   # patterns, e.g. the Snowflake's: shown on the tile + in the colour sheet
+        out['effects'] = list(a['effect_list'])
+        out['effect'] = a.get('effect') if out['on'] else None
     if out['on'] and a.get('color_mode') in COLOUR_MODES and a.get('rgb_color'):
         out['rgb'] = a['rgb_color']
     elif out['on'] and a.get('color_temp_kelvin'):
@@ -1159,7 +1167,7 @@ def _tile(ent, label):
            'temps': all(l['temps'] for l in ls)}
     lit = next((l for l in ls if l['on']), None)
     out['pct'] = lit['pct'] if lit else None
-    for k in ('rgb', 'k'):
+    for k in ('rgb', 'k', 'effects', 'effect'):
         out.pop(k, None)
     if not out['temps']:
         out.pop('kelvin', None)
@@ -1179,7 +1187,7 @@ def _with_moon(l):
     return l
 
 def _home():
-    groups = [{'title': t, 'lights': [_with_moon({**_tile(e.lstrip('~'), l), 'solo': _solo(e)}) for e, l in ents]} for t, ents in _home_groups()]
+    groups = [{'title': t, 'lights': [_with_moon({**_tile(e.lstrip('~'), l), 'solo': _solo(e), 'keepNight': e.lstrip('~') in HOME_NIGHT_KEEP}) for e, l in ents]} for t, ents in _home_groups()]
     media = []
     for ent, label in _home_media().items():
         st = _st(ent); a = st.get('attributes', {})
@@ -1235,6 +1243,12 @@ def api_home_light():
         ha_service('light', 'turn_on', data)
         invalidate('home')
         return jsonify({'ok': True})
+    elif body.get('effect') and body.get('id') in allowed and body['id'] not in _MULTI:
+        if body['effect'] not in (_light(body['id'], '').get('effects') or []):
+            abort(400)
+        ha_service('light', 'turn_on', {'entity_id': body['id'], 'effect': body['effect']})
+        invalidate('home')
+        return jsonify({'ok': True})
     elif body.get('mode') in ('moon', 'sun') and body.get('id') in _MOON:
         moon, sun = _MOON[body['id']]
         if body['mode'] == 'moon':
@@ -1263,6 +1277,22 @@ def api_home_light():
             ha_service('light', 'turn_on', {'entity_id': ent, 'brightness_pct': pct, 'transition': 1})
     invalidate('home')
     return jsonify({'ok': True})
+
+@app.route('/api/home/night', methods=['POST'])
+def api_home_night():
+    """Every HOME_LIGHTS light/switch that is on goes off, except HOME_NIGHT_KEEP (left as they are)."""
+    _home_required()
+    off = []
+    for ent in _home_lights():
+        if ent in HOME_NIGHT_KEEP or not ent.split('.', 1)[0] in ('light', 'switch'):
+            continue
+        for m in _members(ent):
+            if m not in HOME_NIGHT_KEEP and m not in off and _st(m).get('state') == 'on':
+                off.append(m)
+    for m in off:
+        ha_service(m.split('.', 1)[0], 'turn_off', {'entity_id': m})
+    invalidate('home')
+    return jsonify({'ok': True, 'off': off})
 
 @app.route('/api/home/media', methods=['POST'])
 def api_home_media():

@@ -293,6 +293,13 @@ main { position: relative; min-height: 0; padding: .3em 1.2em 1.1em .2em; }
   transition: transform .15s; }
 .swatch:active span { transform: scale(.9); }
 .swatch.cur span { outline: 3px solid var(--accent); outline-offset: 3px; }
+.fx { display: flex; flex-wrap: wrap; gap: .5em; margin-top: .45em; }
+.fx button { padding: .55em 1em; border-radius: 999px; background: var(--chip); font-weight: 600; text-transform: capitalize; }
+.fx button.cur { background: var(--accent); color: #fff; }
+.swsheet .now { font-size: .9rem; color: var(--dim); }
+.nightbar { display: flex; justify-content: flex-end; padding: .2em .1em 0; }
+.nightbar .btn { display: inline-flex; align-items: center; gap: .4em; padding: .45em 1em; font-size: .92rem; }
+.nightbar .btn.arm { background: #8fa3d9; color: #10182e; }
 .plants { flex: 1; overflow-y: auto; padding: .2em .9em 1em; display: grid; gap: .8em; align-content: start; }
 .plant { border-radius: 16px; background: var(--chip); padding: .9em 1em; display: grid; gap: .45em;
   grid-template-columns: 1fr auto; align-items: center; }
@@ -603,6 +610,8 @@ body.night #toast button { color: #10201c; }
 <div id="colour" class="modal hidden">
   <div class="sheet swsheet">
     <div class="hd"><span id="colour-name"></span><button id="colour-close" aria-label="Close"><svg><use href="#i-x"/></svg></button></div>
+    <div class="now hidden" id="colour-now"></div>
+    <div id="colour-fx" class="hidden"><h4>Patterns</h4><div class="fx" data-sw="fx"></div></div>
     <div id="colour-whites"><h4>Whites</h4><div class="swatches" data-sw="kelvin"></div></div>
     <div id="colour-pastels"><h4>Colours</h4><div class="swatches" data-sw="rgb"></div></div>
   </div>
@@ -1087,6 +1096,7 @@ function editChores(kid, pin) {
 
 /* ── home: lights, TV, plants ──────────────────── */
 let home = null, homeHold = 0;                         // homeHold: ignore polls briefly after a tap
+let nightArm = 0;                                      // Night needs a second tap within 4 s
 async function loadHome() {
   if (Date.now() < homeHold) return;
   try { home = await api('/api/home'); } catch { if (!home) home = { groups: [], media: [], plants: [] }; }
@@ -1095,14 +1105,14 @@ async function loadHome() {
 const homeLightAt = el => { const [g, i] = el.closest('.light').dataset.i.split('-'); return home.groups[+g].lights[+i]; };
 function renderHome() {
   if (!home) return;
-  $('#lights').innerHTML = (home.groups || []).map((g, gi) => {
+  $('#lights').innerHTML = (config.hasNight ? `<div class="nightbar"><button class="btn ghost${nightArm > Date.now() ? ' arm' : ''}" data-night>${icon('w-moon')}${nightArm > Date.now() ? 'Tap again: all off but the night lamps' : 'Night'}</button></div>` : '') + (home.groups || []).map((g, gi) => {
     const dimmable = g.lights.filter(l => l.kind === 'light' && !l.solo).length >= 2;
     return `<div class="lgroup"><div class="lhead"><h2>${esc(g.title)}</h2>${dimmable ? `<span class="all">
         <button class="btn ghost" data-all="off" data-g="${gi}">Off</button><button class="btn ghost" data-all="dim" data-g="${gi}">Dim</button><button class="btn" data-all="on" data-g="${gi}">All on</button></span>` : ''}</div>
       <div class="lgrid">${g.lights.map((l, i) => `
         <div class="light${l.on ? ' on' : ''}${l.mode === 'moon' ? ' moon' : ''}${l.moonId && (l.colour || l.temps) ? ' wide' : ''}${l.available ? '' : ' na'}" data-i="${gi}-${i}">
           <button class="tap"><span class="ic">${icon(l.mode === 'moon' ? 'w-moon' : l.kind === 'switch' ? 'i-power' : 'i-bulb')}</span><span><div class="nm">${esc(l.name)}</div>
-            <div class="st">${!l.available ? 'Unavailable' : l.on ? (l.mode === 'moon' ? 'Moonlight' + (l.pct != null ? ' ' + l.pct + '%' : '') : l.pct != null ? l.pct + '%' : 'On') : 'Off'}</div></span></button>
+            <div class="st">${!l.available ? 'Unavailable' : l.on ? (l.mode === 'moon' ? 'Moonlight' + (l.pct != null ? ' ' + l.pct + '%' : '') : (l.effect ? fxName(l.effect) + ' · ' : '') + (l.pct != null ? l.pct + '%' : 'On')) : 'Off'}</div></span></button>
           ${l.dimmable || l.colour || l.temps || l.moonId ? `<div class="ctl">${l.dimmable ? `<div class="dim"><i style="width:${l.on ? (l.pct ?? 100) : 0}%"></i><b>${l.on ? (l.pct ?? 100) + '%' : ''}</b></div>` : ''}${l.colour || l.temps
             ? `<button class="clr${l.colour ? '' : ' wt'}" aria-label="Colour"><i${l.on && (l.rgb || l.k) ? ` style="background:${l.rgb ? `rgb(${l.rgb})` : kelvinCss(l.k)}"` : ''}></i></button>` : ''}${l.moonId
             ? `<button class="mode" aria-label="${l.mode === 'moon' ? 'Daylight' : 'Moonlight'}">${icon(l.mode === 'moon' ? 'w-sun' : 'w-moon')}</button>` : ''}</div>` : ''}
@@ -1136,6 +1146,13 @@ async function homePost(path, body, optimistic) {
   setTimeout(() => { homeHold = 0; loadHome(); }, 1200);
 }
 $('#lights').addEventListener('click', e => {
+  if (e.target.closest('[data-night]')) {
+    if (nightArm < Date.now()) { nightArm = Date.now() + 4000; renderHome(); setTimeout(renderHome, 4100); return; }
+    nightArm = 0;
+    homePost('/api/home/night', {}, () => home.groups.forEach(g => g.lights.forEach(l => { if (!NIGHT_KEEP_UI(l)) l.on = false; })));
+    toast('Good night');
+    return;
+  }
   const all = e.target.closest('[data-all]');
   if (all) {
     const a = all.dataset.all, g = +all.dataset.g;
@@ -1162,6 +1179,12 @@ function kelvinCss(k) {                                   // swatch colour for a
   const [[k0, c0], [k1, c1]] = [KCOL[i - 1], KCOL[i]], t = Math.max(0, Math.min(1, (k - k0) / (k1 - k0)));
   return `rgb(${c0.map((v, j) => Math.round(v + (c1[j] - v) * t))})`;
 }
+// LEDs such as the Snowflake's wash pastels out: lights with patterns get strong colours (white resets a pattern's tint)
+const VIVID = [['#ff0000', 'Red'], ['#ff6a00', 'Orange'], ['#ffc400', 'Gold'], ['#00e040', 'Green'],
+               ['#00d0ff', 'Cyan'], ['#0040ff', 'Blue'], ['#a000ff', 'Purple'], ['#ff2a9a', 'Pink'], ['#ffffff', 'White']];
+const fxName = f => f[0].toUpperCase() + f.slice(1);
+const NIGHT_KEEP_UI = l => l.keepNight;                 // the server marks the lamps Night leaves alone
+const rgbHex = c => '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
 const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 let colourLight = null;
 function openColour(l) {
@@ -1169,10 +1192,14 @@ function openColour(l) {
   $('#colour-name').textContent = l.name;
   $('#colour-whites').classList.toggle('hidden', !l.temps);
   $('#colour-pastels').classList.toggle('hidden', !l.colour);
+  $('#colour-fx').classList.toggle('hidden', !l.effects);
+  $('[data-sw="fx"]').innerHTML = (l.effects || []).map(f => `<button class="${f === l.effect ? 'cur' : ''}" data-fx="${esc(f)}">${esc(f)}</button>`).join('');
+  $('#colour-now').classList.toggle('hidden', !l.effects);
+  $('#colour-now').innerHTML = !l.on ? 'Now: off' : `Now: <b>${esc(l.effect ? fxName(l.effect) : 'On')}</b>${l.rgb ? ` · <span style="display:inline-block;width:.9em;height:.9em;border-radius:50%;vertical-align:-.1em;background:rgb(${l.rgb})"></span> ${rgbHex(l.rgb)}` : ''}${l.pct != null ? ` · ${l.pct}%` : ''}`;
   const [lo, hi] = l.kelvin || [2200, 6500];
   $('[data-sw="kelvin"]').innerHTML = WHITES.filter(([k]) => k >= lo - 100 && k <= hi + 100)
     .map(([k, n]) => `<button class="swatch${l.k && Math.abs(l.k - k) < 150 && !l.rgb ? ' cur' : ''}" data-k="${k}"><span style="background:${kelvinCss(k)}"></span>${n}</button>`).join('');
-  $('[data-sw="rgb"]').innerHTML = PASTELS.map(([h, n]) => `<button class="swatch" data-rgb="${h}"><span style="background:${h}"></span>${n}</button>`).join('');
+  $('[data-sw="rgb"]').innerHTML = (l.effects ? VIVID : PASTELS).map(([h, n]) => `<button class="swatch${l.rgb && rgbHex(l.rgb) === h ? ' cur' : ''}" data-rgb="${h}"><span style="background:${h}"></span>${n}</button>`).join('');
   $('#colour').classList.remove('hidden');
   homeHold = Date.now() + 6e4;
 }
@@ -1180,6 +1207,11 @@ function closeColour() { $('#colour').classList.add('hidden'); colourLight = nul
 $('#colour-close').addEventListener('click', closeColour);
 $('#colour').addEventListener('click', e => {
   if (e.target.id === 'colour') return closeColour();
+  const fx = e.target.closest('[data-fx]');
+  if (fx && colourLight) {
+    const l = colourLight; closeColour();
+    return homePost('/api/home/light', { id: l.id, effect: fx.dataset.fx }, () => { l.on = true; l.effect = fx.dataset.fx; });
+  }
   const b = e.target.closest('.swatch'); if (!b || !colourLight) return;
   const l = colourLight, body = b.dataset.k ? { id: l.id, kelvin: +b.dataset.k } : { id: l.id, rgb: hexRgb(b.dataset.rgb) };
   closeColour();
