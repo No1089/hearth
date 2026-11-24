@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.11.1
+
+- Recipe photos: a last fallback to Wikimedia Commons, taking a photo whose
+  file name has every word of the recipe or dish name (drawings, icons and
+  plants are skipped). Recipes still without a photo are looked up again.
+
 ## 1.11.0
 
 - Drinks: the recipe library has Food and Drinks sides. Claude knows

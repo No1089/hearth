@@ -1559,13 +1559,51 @@ def _wiki_image(r):
                 return src
     return ''
 
+_FILLER = {'easy', 'quick', 'best', 'classic', 'simple', 'mild', 'kid', 'friendly', 'kids', 'homemade', 'the', 'my',
+           'perfect', 'ultimate', 'weeknight', 'healthy', 'fun', 'a', 'with', 'and', 'of'}
+_NOT_FOOD = re.compile(r'drawing|icon|logo|diagram|map|sign|label|menu|plant|flower|berry|vaccinium|cultivar|\.svg$', re.I)
+
+def _commons_image(r):
+    """Last fallback: a Wikimedia Commons photo whose file name has every word of the dish
+    ("Strawberry lemonade in Ankara.jpg" for Strawberry Lemonade Fizz). None when a lookup failed."""
+    words = [w for w in re.sub(r'[^\w\s]', ' ', (r.get('title') or '').lower()).split() if w not in _FILLER]
+    dish = ' '.join(re.sub(r'[^\w\s]', ' ', (r.get('dish') or '').lower()).split())
+    # whole names only: cutting "Lime, Garlic & Paprika Chicken Traybake" down to "lime garlic" finds salmon
+    tries = [q for q in dict.fromkeys([' '.join(words), dish]) if len(q.split()) >= 2 or q == dish and q]
+    for q in tries:
+        qs = urllib.parse.urlencode({'action': 'query', 'generator': 'search', 'gsrnamespace': 6, 'gsrsearch': q,
+                                     'gsrlimit': 8, 'prop': 'imageinfo', 'iiprop': 'url|mime', 'iiurlwidth': 800, 'format': 'json'})
+        try:
+            pages = http_json(f'https://commons.wikimedia.org/w/api.php?{qs}',
+                              headers={'User-Agent': 'Hearth-kitchen-tablet/1.11'}, timeout=8).get('query', {}).get('pages', {})
+        except (OSError, ValueError) as e:
+            app.logger.info('commons image %s: %s', q, e)
+            return None
+        for pg in sorted(pages.values(), key=lambda x: x.get('index', 9)):
+            name = re.sub(r'[_\-]', ' ', pg['title'].lower())
+            info = (pg.get('imageinfo') or [{}])[0]
+            if (info.get('mime') in ('image/jpeg', 'image/png') and not _NOT_FOOD.search(name)
+                    and all(re.search(rf'\b{re.escape(w)}', name) for w in q.split())
+                    and str(info.get('thumburl', '')).startswith('https://')):
+                return info['thumburl']
+        time.sleep(1)                                         # gentle with Wikimedia
+    return ''
+
+PHOTO_LOOKUP = 2      # bump to look again for recipes still without a photo
+
 def _photo(r, url=None):
     """(image, credit) for a new or older recipe: its source page first, then Wikipedia."""
     img = _image_for(url) if url else ''
     if img:
         return img, ''
     img = _wiki_image(r)
-    return (img, 'Wikipedia') if img else ('', '' if img == '' else None)   # credit None = lookup failed
+    if img:
+        return img, 'Wikipedia'
+    failed = img is None
+    img = _commons_image(r)
+    if img:
+        return img, 'Wikimedia Commons'
+    return '', None if (failed or img is None) else ''     # credit None = a lookup failed: try again later
 
 def _backfill_images(ids):
     """Recipes from the web saved without a photo: look once, in the background."""
@@ -1576,7 +1614,7 @@ def _backfill_images(ids):
             rs = _load_recipes()
             for x in rs:
                 if x['id'] == rid:
-                    x['image_looked'] = credit is not None
+                    x['image_looked'] = PHOTO_LOOKUP if credit is not None else 0
                     credit = credit or ''
                     if img and not x.get('image'):
                         x['image'], x['image_credit'] = img, credit
@@ -1718,7 +1756,7 @@ def add_page():
 def api_recipes():
     _seed_drinks()
     rs = _load_recipes()
-    todo = [r['id'] for r in rs if not r.get('image') and not r.get('image_looked')
+    todo = [r['id'] for r in rs if not r.get('image') and int(r.get('image_looked') or 0) < PHOTO_LOOKUP
             and r['id'] not in _backfilling][:5]
     if todo:
         _backfilling.update(todo)                         # once per server run; a failed lookup waits for a restart

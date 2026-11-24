@@ -1557,7 +1557,7 @@ function renderRecipe() {
         ${r.note ? `<div class="rnote">${esc(r.note)}</div>` : ''}${r.description && !r.note ? `<div class="rnote">${esc(r.description)}</div>` : ''}
         ${steps}
         ${r.tips?.length ? `<h3>Tips</h3><div class="rtips">${r.tips.map(t => `<div>• ${esc(t)}</div>`).join('')}</div>` : ''}
-        ${r.source_url ? `<div class="rsrc">From ${esc(r.source_url)}</div>` : ''}${r.image_credit ? `<div class="rsrc">Photo: ${esc(r.image_credit)} (the dish in general, not this recipe)</div>` : ''}
+        ${r.source_url ? `<div class="rsrc">From ${esc(r.source_url)}</div>` : ''}${r.image_credit ? `<div class="rsrc">Photo: ${esc(r.image_credit)} (a similar dish, not this recipe)</div>` : ''}
       </div>
     </div>`;
 }
