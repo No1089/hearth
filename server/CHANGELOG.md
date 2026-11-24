@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.10.1
+
+- Recipes: Print asks first ("Ingredients" or "Whole recipe", with the length
+  in cm), since the printer can't stop once it starts.
+- Recipes found on the web get the photo from their source page (schema.org
+  image, else og:image); recipes saved earlier without one are looked up once.
+- Library cards: three across, and titles no longer clipped.
+
 ## 1.10.0
 
 - Home tab: `home_patterns` lights (e.g. the Snowflake) show their running

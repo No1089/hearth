@@ -1469,11 +1469,7 @@ def _shop_name(text):
     return _txt(t, 80)
 
 def _from_ld(ld, url):
-    img = ld.get('image')
-    if isinstance(img, list):
-        img = img[0] if img else ''
-    if isinstance(img, dict):
-        img = img.get('url', '')
+    img = urllib.parse.urljoin(url, _ld_image(ld.get('image')))
     yld = ld.get('recipeYield')
     ylist = [str(y).strip() for y in (yld if isinstance(yld, list) else [yld]) if str(y or '').strip()]
     # ["12", "1 9x13-inch lasagna"]: the bare number is the servings, the text is the yield
@@ -1505,6 +1501,48 @@ def _imperial(r):
 _METRIC_ASK = ('Convert this imported recipe to the household\'s metric style (weights plus volumes, °C) and save it. '
                'Keep the author\'s method, wording and quantities otherwise; keep source_url/source_name; set note to '
                '"Converted to metric." Fill in item for each ingredient.\n\n<recipe>\n')
+
+def _ld_image(img):
+    if isinstance(img, list):
+        img = img[0] if img else ''
+    if isinstance(img, dict):
+        img = img.get('url') or img.get('contentUrl') or ''
+    return str(img or '')
+
+def _page_image(html, url):
+    """The recipe's photo: schema.org image, else the page's og:image / twitter:image."""
+    ld = _ld_recipe(html)
+    img = _ld_image(ld.get('image')) if ld else ''
+    if not img:
+        m = re.search(r'<meta[^>]+(?:property|name)=["\'](?:og:image(?::secure_url)?|twitter:image)["\'][^>]*>', html, re.I)
+        c = re.search(r'content=["\']([^"\']+)', m.group(0)) if m else None
+        img = unescape(c.group(1)) if c else ''
+    img = urllib.parse.urljoin(url, img) if img else ''
+    return img if img.startswith('https://') else ''
+
+def _image_for(url):
+    """Photo for a recipe found on the web; '' when the page can't be read."""
+    try:
+        html, final = _fetch_page(url)
+        return _page_image(html, final)
+    except (OSError, ValueError) as e:
+        app.logger.info('recipe image %s: %s', url, e)
+        return ''
+
+def _backfill_images(ids):
+    """Recipes from the web saved without a photo: look once, in the background."""
+    for rid in ids:
+        r = next((x for x in _load_recipes() if x['id'] == rid), None)
+        img = _image_for(r['source_url']) if r else ''
+        with _recipes_lock:
+            rs = _load_recipes()
+            for x in rs:
+                if x['id'] == rid:
+                    x['image_tried'] = True
+                    x['image'] = x.get('image') or img
+            _save_recipes(rs)
+
+_backfilling = set()
 
 def _page_text(html):
     html = re.sub(r'<(script|style|noscript|svg|nav|footer|header)\b.*?</\1>', ' ', html, flags=re.S | re.I)
@@ -1633,7 +1671,13 @@ def add_page():
 
 @app.route('/api/recipes')
 def api_recipes():
-    return jsonify({'recipes': [_summary(r) for r in _load_recipes()], 'claude': bool(ANTHROPIC_API_KEY)})
+    rs = _load_recipes()
+    todo = [r['id'] for r in rs if r.get('source_url') and not r.get('image') and not r.get('image_tried')
+            and r['id'] not in _backfilling][:5]
+    if todo:
+        _backfilling.update(todo)
+        threading.Thread(target=_backfill_images, args=(todo,), daemon=True).start()
+    return jsonify({'recipes': [_summary(r) for r in rs], 'claude': bool(ANTHROPIC_API_KEY)})
 
 @app.route('/api/recipes/<rid>')
 def api_recipe(rid):
@@ -1676,7 +1720,7 @@ def api_recipe_import():
         r = _claude_recipe(f'Here is the text of the web page {final}. Turn the recipe on it into save_recipe, '
                            f'keeping the author\'s quantities and method; set source_url to the page. If there is '
                            f'no recipe on the page, say so instead.\n\n<page>\n{_page_text(html)}\n</page>')
-        return _maybe_show(_store_recipe(r, 'link'))
+        return _maybe_show(_store_recipe({**r, 'image': _page_image(html, final)}, 'link'))
     return _recipe_job(run)
 
 @app.route('/api/recipes/ask', methods=['POST'])
@@ -1691,7 +1735,12 @@ def api_recipe_ask():
                   f'(servings, dietary needs, equipment, ingredients to use up). Prefer reputable recipe sites. '
                   f'Set source_url/source_name to the recipe you based it on and say in note what you changed.\n\n'
                   f'Request: {q}')
-        return _recipe_job(lambda: _maybe_show(_store_recipe(_claude_recipe(prompt, web=True, effort='medium'), 'search')))
+        def run():
+            r = _claude_recipe(prompt, web=True, effort='medium')
+            if str(r.get('source_url') or '').startswith(('http://', 'https://')):
+                r = {**r, 'image': _image_for(r['source_url'])}
+            return _maybe_show(_store_recipe(r, 'search'))
+        return _recipe_job(run)
     prompt = f'Write a reliable home recipe for this request. Leave source_url empty.\n\nRequest: {q}'
     return _recipe_job(lambda: _maybe_show(_store_recipe(_claude_recipe(prompt), 'create')))
 
