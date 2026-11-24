@@ -80,6 +80,8 @@ own, so neither is an option.
 | `weather_lat`, `weather_lon` | *(blank)* | Where the weather is for. Blank: Home Assistant's own home location. |
 | `anthropic_api_key` | *(blank)* | A Claude API key for the Recipes tab: finding recipes on the web, writing one, and changing a saved one. Without it, pasted links still import. |
 | `recipe_model` | `claude-opus-5-5` | The Claude model for recipes. |
+| `meal_calendar` | *(blank)* | A writable calendar for the meal plan, `entity|Label|#colour`, e.g. a Local Calendar: `calendar.meals|Meals|#3c9d5d`. The recipe page gets a **Plan** button once the calendar exists and takes new events, and the week view shows it. |
+| `meal_times` | `Lunch|13:00,Dinner|19:00` | The meals you can plan, `Label|HH:MM` (each event lasts an hour). |
 | `recipe_idle_min` | `45` | Minutes the Recipes tab stays up untouched before the pictures come back (the rest of the dashboard: 90 seconds). The screen also stays on while a kitchen timer runs. |
 
 ## Recipes
@@ -97,6 +99,12 @@ The Recipes tab keeps a small recipe book on the tablet (in `/data/recipes.json`
   the shopping list.
 - **Start cooking** shows one step at a time, big. Times in a step are buttons that start a timer; timers ring
   and wake the screen.
+- **Food / Drinks**: the library has a drinks side, with three classic cocktails and three kids' mocktails to
+  start. Ask on the Drinks side for a cocktail or a mocktail; mocktails are always alcohol-free.
+- **Plan** (needs `meal_calendar`) puts a recipe on a day as lunch or dinner; tap it in the week view to open the
+  recipe. **Plan + shopping** goes straight on to the shopping list.
+- **From a photo** (needs the key): a photo of the fridge or the counter, and Claude suggests a recipe that uses
+  what it sees. The kiosk app has no file picker, so on the tablet this points to the phone page.
 - From a phone, open `http://<tablet server>:5007/add` to send a link or a request to the kitchen.
   `/add?url=<link>` fills the box in, which suits an iOS share-sheet Shortcut.
 

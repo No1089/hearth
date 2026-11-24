@@ -25,6 +25,10 @@ label input { width: 1.2em; height: 1.2em; accent-color: var(--accent); }
 #out.bad { color: var(--bad); }
 #out b { display: block; font-size: 1.1rem; }
 #out small { color: var(--dim); }
+.photo { margin-top: 1.4em; padding-top: 1.2em; border-top: 1px solid var(--line); }
+.photo label.pick { display: flex; justify-content: center; align-items: center; gap: .5em; margin: .6em 0 0; background: var(--accent); color: #fff; font-weight: 700; border-radius: 12px; padding: .85em 1em; }
+.photo img { display: block; max-width: 100%; max-height: 14em; border-radius: 12px; margin-top: .7em; }
+.photo p { color: var(--dim); font-size: .95rem; }
 h2 { font-size: 1rem; margin: 1.6em 0 .5em; color: var(--dim); }
 ul { list-style: none; padding: 0; display: grid; gap: .4em; }
 li { background: var(--panel); border-radius: 12px; padding: .6em .8em; border: 1px solid var(--line); display: flex; justify-content: space-between; gap: .6em; }
@@ -38,6 +42,12 @@ li small { color: var(--dim); white-space: nowrap; }
 <div class="row" id="btns"></div>
 <label><input type="checkbox" id="save" checked> Save it</label>
 <label><input type="checkbox" id="show" checked> Open it on the tablet now</label>
+<div class="photo">
+  <b>Cook from a photo</b>
+  <p>Snap the fridge, the veg drawer or what's on the counter, and Claude suggests something to make. Anything typed above is used as a wish ("for 4, quick").</p>
+  <label class="pick" id="pick">📷 Take or choose a photo<input type="file" accept="image/*" capture="environment" id="file" hidden></label>
+  <img id="preview" hidden alt="">
+</div>
 <div id="out"></div>
 <h2>Saved</h2>
 <ul id="list"></ul>
@@ -76,6 +86,36 @@ $('#btns').addEventListener('click', async e => {
     $('#q').value = ''; buttons(); list();
   } catch (err) { out.className = 'bad'; out.textContent = err.message; }
   finally { busy = false; document.querySelectorAll('#btns button').forEach(x => x.disabled = false); }
+});
+function shrink(file) {
+  return new Promise((ok, bad) => {
+    const img = new Image(); img.onerror = bad;
+    img.onload = () => {
+      const k = Math.min(1, 1568 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      ok(c.toDataURL('image/jpeg', .85));
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+$('#file').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f || busy) return;
+  const out = $('#out'); out.className = '';
+  if (!claude) { out.className = 'bad'; out.textContent = 'Claude is not set up on the server'; return; }
+  let image;
+  try { image = await shrink(f); } catch { out.className = 'bad'; out.textContent = "Couldn't read that photo"; return; }
+  e.target.value = ''; $('#preview').src = image; $('#preview').hidden = false;
+  busy = true; $('#pick').style.opacity = .5; out.textContent = 'Looking at the photo… (up to a minute)';
+  try {
+    const r = await fetch('/api/recipes/photo', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image, note: $('#q').value.trim(), save: $('#save').checked, show: $('#show').checked }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `Error ${r.status}`);
+    out.innerHTML = `<b>${esc(d.title)}</b><small>${esc(d.note || '')}</small>`;
+    $('#q').value = ''; list();
+  } catch (err) { out.className = 'bad'; out.textContent = err.message; }
+  finally { busy = false; $('#pick').style.opacity = 1; }
 });
 // share-sheet / shortcut friendly: /add?url=… or /add?q=…
 const p = new URLSearchParams(location.search);

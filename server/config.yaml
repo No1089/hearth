@@ -5,7 +5,7 @@
 # (lists comma-joined, blanks skipped), so there is no run script. What each option
 # does is in DOCS.md.
 name: Hearth
-version: "1.10.2"
+version: "1.11.0"
 slug: hearth
 description: "Kitchen wall dashboard for a spare tablet: paintings, the week, shopping list, to-dos, recipes, pocket money, the speaker and an on-a-call banner"
 url: https://github.com/No1089/hearth
@@ -70,6 +70,8 @@ options:
   anthropic_api_key: ""
   recipe_model: claude-opus-5-5
   recipe_idle_min: 45
+  meal_calendar: ""
+  meal_times: "Lunch|13:00,Dinner|19:00"
 schema:
   ha_shopping_list: str
   ha_todo_lists:
@@ -104,3 +106,5 @@ schema:
   anthropic_api_key: "password?"
   recipe_model: "str?"
   recipe_idle_min: "int(2,240)"
+  meal_calendar: "str?"
+  meal_times: "str?"

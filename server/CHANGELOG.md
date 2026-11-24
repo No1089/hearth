@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.11.0
+
+- Drinks: the recipe library has Food and Drinks sides. Claude knows
+  cocktails and mocktails (ml measures, glass, ice, garnish; mocktails never
+  contain alcohol). Six to start: Mojito, Negroni, Margarita, and for the kids
+  a Nojito, a Shirley Temple and a Strawberry Lemonade Fizz.
+- Meal plan: `meal_calendar` (a writable calendar such as a Local Calendar)
+  adds a Plan button to recipes: pick a day and Lunch/Dinner (`meal_times`).
+  The event links back, so tapping it in the week view opens the recipe.
+- From a photo (experimental): on the phone page (and in a normal browser on
+  the tablet), a photo of ingredients becomes a suggested recipe.
+
 ## 1.10.2
 
 - Recipe photos: when the source page has none or refuses the request, and

@@ -389,6 +389,19 @@ nav .eq i:nth-child(2) { animation-delay: -.4s; } nav .eq i:nth-child(3) { anima
 .rgrid h2 { grid-column: 1 / -1; padding: .8em 0 0; }
 .rgrid h2 small { color: var(--dim); font-weight: 500; font-size: .7em; margin-left: .4em; }
 .rcard.recent { opacity: .85; }
+.rkind { grid-column: 1 / -1; display: flex; gap: .4em; padding-top: .9em; }
+.rkind button { padding: .45em 1.1em; border-radius: 999px; background: var(--chip); font-weight: 700; color: var(--dim); }
+.rkind button.on { background: var(--accent); color: var(--accent-ink); }
+.ev[data-recipe] { cursor: pointer; }
+.ev[data-recipe] .ti::before { content: "🍽 "; }
+.plan-days { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5em; }
+.plan-days button, .plan-meals button { padding: .6em .4em; border-radius: 12px; background: var(--chip); font-weight: 700; font-size: .95rem; }
+.plan-days button.on, .plan-meals button.on { background: var(--accent); color: var(--accent-ink); }
+.plan-days button small { display: block; font-weight: 500; font-size: .8em; opacity: .8; }
+.plan-meals { display: flex; gap: .5em; }
+.plan-meals button { flex: 1; }
+.rphoto { display: flex; gap: .5em; align-items: center; color: var(--dim); font-size: .85rem; line-height: 1.4; border-top: 1px solid var(--line); padding-top: .8em; }
+.rphoto .btn { flex: none; }
 .rgrid .none { grid-column: 1 / -1; color: var(--dim); padding: 2em 1em; text-align: center; }
 .rview { display: grid; grid-template-rows: auto 1fr; gap: .8em; height: 100%; }
 .rhead { display: flex; align-items: center; gap: .6em; flex-wrap: wrap; }
@@ -495,6 +508,8 @@ body.night #toast button { color: #10201c; }
   <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.3-4.3"/></symbol>
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+  <symbol id="i-glass" viewBox="0 0 24 24"><path d="M5 4h14l-7 8zM12 12v7M8 20h8"/></symbol>
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/></symbol>
   <symbol id="w-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></symbol>
   <symbol id="w-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
@@ -584,6 +599,7 @@ body.night #toast button { color: #10201c; }
           <div class="row" id="r-btns"></div>
           <div class="busy hidden" id="r-busy"><svg><use href="#i-refresh"/></svg><span></span></div>
           <div class="hint" id="r-hint"></div>
+          <div class="rphoto hidden" id="r-photo"></div>
         </div>
         <div class="card"><div class="rgrid" id="r-grid"></div></div>
       </div>
@@ -875,11 +891,13 @@ async function loadWeek() {
       if (e.allDay) return `<div class="ev all" style="--c:${c}"><div class="ti">${esc(e.title)}</div></div>`;
       const s = new Date(e.start), en = new Date(e.end);
       const tm = s < d ? 'cont.' : s.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-      return `<div class="ev${en < now ? ' past' : ''}" style="--c:${c}"><div class="tm">${tm}</div><div class="ti">${esc(e.title)}</div></div>`;
+      return `<div class="ev${en < now ? ' past' : ''}" style="--c:${c}"${e.recipe ? ` data-recipe="${esc(e.recipe)}"` : ''}><div class="tm">${tm}</div><div class="ti">${esc(e.title)}</div></div>`;
     }).join('') : `<div class="none">—</div>`;
     return `<div class="day${i === 0 ? ' today' : ''}">${head}<div class="evs">${body}</div></div>`;
   }).join('') + (data.unconfigured ? `<div class="empty-note" style="position:absolute;inset:auto 0 45%;">No calendar connected yet</div>` : '');
 }
+
+$('#week').addEventListener('click', e => { const ev = e.target.closest('[data-recipe]'); if (ev) openRecipe(ev.dataset.recipe); });
 
 /* ── lists ─────────────────────────────────────── */
 const lists = {};
@@ -1370,14 +1388,45 @@ function recipeCard(r) {
       <div class="ph"${r.image ? ` style="background-image:url('${esc(r.image)}')"` : ''}>${r.image ? '' : icon('i-pot')}</div>
       <div class="tx"><div class="nm">${esc(r.title)}</div><div class="mt">${esc([mins(r.total_min || ((r.prep_min || 0) + (r.cook_min || 0)) || null), r.source_name || (r.origin === 'create' ? 'Claude' : '')].filter(Boolean).join(' · '))}</div></div></button>`;
 }
+let rKind = 'meal';
 function renderRecipeLib() {
-  const saved = (recipes || []).filter(r => r.saved), recent = (recipes || []).filter(r => !r.saved);
-  $('#r-grid').innerHTML = `<h2>Saved recipes${saved.length ? ` <small>${saved.length}</small>` : ''}</h2>` +
+  const mine = (recipes || []).filter(r => (r.kind || 'meal') === rKind);
+  const saved = mine.filter(r => r.saved), recent = mine.filter(r => !r.saved);
+  const drinks = rKind === 'drink';
+  $('#r-q').placeholder = drinks ? 'Paste a link, or ask: “a fun pink mocktail for the kids”, “something with gin and grapefruit”'
+    : 'Paste a link, or say what you fancy: “quick chicken curry for 4, no coconut”';
+  $('#r-grid').innerHTML = `<div class="rkind"><button data-kind="meal" class="${drinks ? '' : 'on'}">${icon('i-pot')} Food</button><button data-kind="drink" class="${drinks ? 'on' : ''}">${icon('i-glass')} Drinks</button></div>` +
+    `<h2>${drinks ? 'Saved drinks' : 'Saved recipes'}${saved.length ? ` <small>${saved.length}</small>` : ''}</h2>` +
     (saved.length ? saved.map(recipeCard).join('') : `<div class="none">Nothing saved yet. Open a recipe and tap ♡ Save to keep it here.</div>`) +
     (recent.length ? `<h2>Recent<small>not saved · the newest 12 are kept</small></h2>` + recent.map(recipeCard).join('') : '');
   renderRecipeButtons();
 }
+function renderPhotoRow() {
+  const el = $('#r-photo'); el.classList.toggle('hidden', !config.hasClaude);
+  el.innerHTML = window.Kiosk
+    ? `${icon('i-camera')}<span>Cook from a photo of what you've got: open <b>${esc(location.host)}/add</b> on your phone.</span>`
+    : `<label class="btn ghost">${icon('i-camera')}From a photo<input type="file" accept="image/*" capture="environment" hidden></label><span>Snap the fridge or the counter; Claude suggests something to make.</span>`;
+  $('input', el)?.addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    const image = await shrinkPhoto(f); e.target.value = '';
+    recipeRequest('/api/recipes/photo', { image, note: $('#r-q').value.trim() }, 'Looking at the photo…', () => { $('#r-q').value = ''; });
+  });
+}
+/* phone photos are big: send ≤1568 px JPEG (what the model looks at anyway) */
+function shrinkPhoto(file) {
+  return new Promise((ok, bad) => {
+    const img = new Image(); img.onerror = bad;
+    img.onload = () => {
+      const k = Math.min(1, 1568 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(img.src);
+      ok(c.toDataURL('image/jpeg', .85));
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
 function renderRecipeButtons() {
+  renderPhotoRow();
   const q = $('#r-q').value.trim(), claude = config.hasClaude;
   $('#r-btns').innerHTML = isUrl(q) ? `<button class="btn" data-go="link">${icon('i-link')}Import link</button>`
     : claude ? `<button class="btn" data-go="search">${icon('i-search')}Find a recipe</button><button class="btn ghost" data-go="create">${icon('i-spark')}Write one</button>`
@@ -1391,7 +1440,7 @@ $('#r-btns').addEventListener('click', e => {
   const b = e.target.closest('[data-go]'); if (!b || b.disabled) return;
   const q = $('#r-q').value.trim(); if (!q) { toast('Paste a link or type what you fancy'); return; }
   const go = b.dataset.go;
-  recipeRequest(go === 'link' ? '/api/recipes/import' : '/api/recipes/ask', go === 'link' ? { url: q } : { q, web: go === 'search' },
+  recipeRequest(go === 'link' ? '/api/recipes/import' : '/api/recipes/ask', go === 'link' ? { url: q } : { q, web: go === 'search', kind: rKind },
     go === 'link' ? 'Reading the page…' : go === 'search' ? 'Searching recipe sites…' : 'Writing a recipe…', () => { $('#r-q').value = ''; });
 });
 async function recipeRequest(path, body, label, ok, where = '#r-busy') {
@@ -1407,7 +1456,10 @@ async function recipeRequest(path, body, label, ok, where = '#r-busy') {
   } catch (err) { toast(err.message.length > 90 ? err.message.slice(0, 90) + '…' : err.message); }
   finally { rBusy = false; busy.classList.add('hidden'); $$('#r-btns .btn, .rsheet .btn').forEach(x => x.disabled = false); }
 }
-$('#r-grid').addEventListener('click', e => { const c = e.target.closest('.rcard'); if (c) openRecipe(c.dataset.id); });
+$('#r-grid').addEventListener('click', e => {
+  const k = e.target.closest('[data-kind]'); if (k) { rKind = k.dataset.kind; renderRecipeLib(); return; }
+  const c = e.target.closest('.rcard'); if (c) openRecipe(c.dataset.id);
+});
 
 /* one recipe */
 const rKey = id => 'recipe:' + id;
@@ -1415,6 +1467,7 @@ async function openRecipe(id, data) {
   try { recipe = data || await api(`/api/recipes/${id}`); } catch { toast("Couldn't open that recipe"); return; }
   try { rState = JSON.parse(localStorage.getItem(rKey(id)) || 'null'); } catch { rState = null; }
   rState ||= { have: [], step: 0, serves: recipe.serves };
+  rKind = recipe.kind || 'meal';
   if (view !== 'recipes') setView('recipes');
   closeRSheet();
   $('#r-lib').classList.add('hidden'); $('#r-view').classList.remove('hidden');
@@ -1492,6 +1545,7 @@ function renderRecipe() {
       ${r.serves ? `<span class="scale"><button data-r="less" aria-label="Fewer">−</button><span>Serves ${rState.serves}${f !== 1 ? ` <small style="color:var(--dim)">(×${+f.toFixed(2)})</small>` : ''}</span><button data-r="more" aria-label="More">+</button></span>` : ''}
       <button class="btn${r.saved ? ' ghost' : ''}" data-r="save">${r.saved ? '♥ Saved' : '♡ Save'}</button>
       ${config.hasClaude ? `<button class="btn ghost" data-r="change">${icon('i-spark')}Change</button>` : ''}
+      ${config.mealPlan && r.kind !== 'drink' ? `<button class="btn ghost" data-r="plan">${icon('i-cal')}Plan</button>` : ''}
       <button class="btn ghost" data-r="shop">${icon('i-cart')}Shopping</button>
       ${blePrinter() ? `<button class="btn ghost" data-r="print" aria-label="Print">${icon('i-print')}</button>` : ''}
       <button class="btn ghost" data-r="delete" aria-label="Delete">${icon('i-trash')}</button>
@@ -1526,6 +1580,7 @@ $('#r-view').addEventListener('click', e => {
   }
   else if (a === 'change') changeSheet();
   else if (a === 'shop') shopSheet();
+  else if (a === 'plan') planSheet();
   else if (a === 'print') printSheet();
   else if (a === 'delete') deleteSheet();
 });
@@ -1535,9 +1590,10 @@ function rSheet(html) { $('#r-sheet-body').innerHTML = html; $('#r-sheet').class
 function closeRSheet() { $('#r-sheet').classList.add('hidden'); }
 $('#r-sheet').addEventListener('click', e => { if (e.target.id === 'r-sheet' || e.target.closest('[data-x]')) closeRSheet(); });
 const CHANGES = ['Metric, weights and volumes', 'Make it vegetarian', 'No oven (hob only)', 'Air fryer', 'Quicker, under 30 min', 'Kid-friendly, less spicy', 'Dairy-free', 'Gluten-free', 'Use what I have: …'];
+const DRINK_CHANGES = ['Make it a mocktail', 'Kid-friendly and fun', 'A jug for 8', 'Less sweet', 'Without a shaker', 'Use what I have: …'];
 function changeSheet() {
   rSheet(`<h2>Change “${esc(recipe.title)}”</h2>
-    <div class="chips">${CHANGES.map(c => `<button class="chip">${esc(c)}</button>`).join('')}</div>
+    <div class="chips">${(recipe.kind === 'drink' ? DRINK_CHANGES : CHANGES).map(c => `<button class="chip">${esc(c)}</button>`).join('')}</div>
     <div class="rnew" style="padding:0"><textarea id="r-ask" placeholder="e.g. for 6 people, swap the cream for yoghurt"></textarea></div>
     <div class="busy hidden" id="r-cbusy" style="gap:.6em;color:var(--accent);font-weight:700"><svg style="animation:spin .9s linear infinite"><use href="#i-refresh"/></svg><span></span></div>
     <div class="hint" style="color:var(--dim);font-size:.85rem">Claude writes a changed copy; the original stays in Saved.</div>
@@ -1567,6 +1623,30 @@ function shopSheet() {
     loadList('shopping');
     toast(n === names.length ? `Added ${n} to the shopping list` : `Added ${n} of ${names.length}; the rest failed`);
   };
+}
+function planSheet() {
+  const days = [...Array(8)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return d; });
+  const meals = config.mealTimes || ['Dinner'];
+  let day = 0, meal = meals[meals.length - 1];
+  const draw = () => {
+    $('.plan-days').innerHTML = days.map((d, i) => `<button data-d="${i}" class="${i === day ? 'on' : ''}">${i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString('en-GB', { weekday: 'short' })}<small>${d.getDate()} ${d.toLocaleDateString('en-GB', { month: 'short' })}</small></button>`).join('');
+    $('.plan-meals').innerHTML = meals.map(m => `<button data-m="${esc(m)}" class="${m === meal ? 'on' : ''}">${esc(m)}</button>`).join('');
+  };
+  rSheet(`<h2>Plan “${esc(recipe.title)}”</h2><div class="plan-days"></div><div class="plan-meals"></div>
+    <div class="actions"><button class="btn ghost" data-x>Cancel</button><button class="btn ghost" id="pl-shop">${icon('i-cart')}Plan + shopping</button><button class="btn" id="pl-go">${icon('i-cal')}Add to calendar</button></div>`);
+  draw();
+  $('.plan-days').onclick = e => { const b = e.target.closest('[data-d]'); if (b) { day = +b.dataset.d; draw(); } };
+  $('.plan-meals').onclick = e => { const b = e.target.closest('[data-m]'); if (b) { meal = b.dataset.m; draw(); } };
+  const go = async shop => {
+    const d = days[day], date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    try {
+      await api(`/api/recipes/${recipe.id}/plan`, { method: 'POST', body: { date, meal, serves: rState.serves } });
+      toast(`${meal} ${day === 0 ? 'today' : day === 1 ? 'tomorrow' : 'on ' + d.toLocaleDateString('en-GB', { weekday: 'long' })}: on the calendar`);
+      if (shop) shopSheet(); else closeRSheet();
+    } catch { toast("Couldn't add it to the calendar"); }
+  };
+  $('#pl-go').onclick = () => go(false);
+  $('#pl-shop').onclick = () => go(true);
 }
 function deleteSheet() {
   rSheet(`<h2>Delete “${esc(recipe.title)}”?</h2><div class="actions"><button class="btn ghost" data-x>Keep it</button><button class="btn" id="r-del-go" style="background:var(--busy)">${icon('i-trash')}Delete</button></div>`);
