@@ -76,6 +76,27 @@ own, so neither is an option.
 | `immich_album_ids` | *(blank)* | Album ids to show. |
 | `image_dir` | *(blank)* | A folder of pictures for the slideshow, e.g. `/media/hearth` (the app sees `/media` read-only). Subfolders are included, and a subfolder's name is the caption, so `/media/hearth/Cornwall 2024/` captions its pictures "Cornwall 2024". |
 | `weather_lat`, `weather_lon` | *(blank)* | Where the weather is for. Blank: Home Assistant's own home location. |
+| `anthropic_api_key` | *(blank)* | A Claude API key for the Recipes tab: finding recipes on the web, writing one, and changing a saved one. Without it, pasted links still import. |
+| `recipe_model` | `claude-opus-5-5` | The Claude model for recipes. |
+| `recipe_idle_min` | `45` | Minutes the Recipes tab stays up untouched before the pictures come back (the rest of the dashboard: 90 seconds). The screen also stays on while a kitchen timer runs. |
+
+## Recipes
+
+The Recipes tab keeps a small recipe book on the tablet (in `/data/recipes.json`).
+
+- **Paste a link** to read the recipe from the page. Most recipe sites publish it as schema.org data;
+  pages without it go to Claude as text when a key is set.
+- **Find a recipe** (needs `anthropic_api_key`): Claude searches recipe sites and adapts the best match to
+  what you asked ("lasagne for 8, half the beef swapped for lentils"), and notes the source and what it changed.
+  **Write one** has Claude write a recipe without searching. Either takes up to a minute.
+- **Change** makes a changed copy of a recipe (vegetarian, no oven, air fryer, for 6...); the original stays.
+- New recipes land under **Recent** (the newest 12 are kept); **♡ Save** keeps one.
+- Tick ingredients as you get them out. **Serves − / +** scales the quantities, and **Shopping** adds the rest to
+  the shopping list.
+- **Start cooking** shows one step at a time, big. Times in a step are buttons that start a timer; timers ring
+  and wake the screen.
+- From a phone, open `http://<tablet server>:5007/add` to send a link or a request to the kitchen.
+  `/add?url=<link>` fills the box in, which suits an iOS share-sheet Shortcut.
 
 ## The on-a-call banner
 

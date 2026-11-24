@@ -5,9 +5,9 @@
 # (lists comma-joined, blanks skipped), so there is no run script. What each option
 # does is in DOCS.md.
 name: Hearth
-version: "1.8.0"
+version: "1.9.0"
 slug: hearth
-description: "Kitchen wall dashboard for a spare tablet: paintings, the week, shopping list, to-dos, pocket money, the speaker and an on-a-call banner"
+description: "Kitchen wall dashboard for a spare tablet: paintings, the week, shopping list, to-dos, recipes, pocket money, the speaker and an on-a-call banner"
 url: https://github.com/No1089/hearth
 arch:
   - aarch64
@@ -65,6 +65,9 @@ options:
   image_dir: ""
   weather_lat: ""
   weather_lon: ""
+  anthropic_api_key: ""
+  recipe_model: claude-opus-5-5
+  recipe_idle_min: 45
 schema:
   ha_shopping_list: str
   ha_todo_lists:
@@ -94,3 +97,6 @@ schema:
   image_dir: "str?"
   weather_lat: "str?"
   weather_lon: "str?"
+  anthropic_api_key: "password?"
+  recipe_model: "str?"
+  recipe_idle_min: "int(2,240)"

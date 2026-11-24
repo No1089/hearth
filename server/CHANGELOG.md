@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.9.0
+
+- Recipes tab. Paste a recipe link and it is read from the page's own recipe
+  data (schema.org, which most recipe sites publish). With `anthropic_api_key`
+  set, Claude can also find a recipe (searches recipe sites and adapts the best
+  one to what you asked, e.g. "chicken curry for 6, no coconut"), write one, or
+  make a changed copy of a saved one (vegetarian, no oven, quicker...).
+- A recipe shows ingredients with tick boxes and the method. Servings scale the
+  quantities, Shopping adds the ingredients you don't have to the shopping list,
+  and a Bluetooth receipt printer can print it. New recipes go under Recent
+  (the last 12 are kept); Save keeps one.
+- Start cooking: one big step at a time, with swipe or Back/Next and the
+  ingredients alongside. Times in a step ("simmer for 20 minutes") are timer
+  buttons; timers ring with a beep and wake the screen.
+- On the Recipes tab the pictures wait `recipe_idle_min` (45) minutes instead
+  of 90 seconds, and the screen stays on while a timer runs.
+- `/add`: a phone page to send a link or a request to the kitchen; it can save
+  the recipe and open it on the tablet. `/add?url=…` fills it in, for a share
+  shortcut.
+
 ## 1.8.0
 
 - Slideshow: `season_share` gives the paintings in frame-art's monthly theme

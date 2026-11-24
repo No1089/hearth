@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Send a recipe to the kitchen</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#2f6f62">
+<style>
+:root { --bg: #f6f1e8; --panel: #fffdf8; --ink: #2a2622; --dim: #7a7166; --line: #e7dfd2; --accent: #2f6f62; --chip: #efe7da; --bad: #c0392b; }
+@media (prefers-color-scheme: dark) { :root { --bg: #15130f; --panel: #1f1c17; --ink: #ece5d8; --dim: #9a9083; --line: #2e2a23; --accent: #6fb7a5; --chip: #2a2620; } }
+* { box-sizing: border-box; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 17px/1.45 system-ui, -apple-system, Roboto, sans-serif; padding: max(1.2em, env(safe-area-inset-top)) 1.1em 2em; max-width: 34em; margin: 0 auto; }
+h1 { font-size: 1.4rem; margin-bottom: .2em; }
+p.sub { color: var(--dim); margin-bottom: 1em; font-size: .95rem; }
+textarea { width: 100%; min-height: 6em; font: inherit; color: inherit; background: var(--panel); border: 2px solid var(--line); border-radius: 14px; padding: .7em .8em; resize: vertical; outline: none; }
+textarea:focus { border-color: var(--accent); }
+.row { display: flex; gap: .5em; margin-top: .7em; flex-wrap: wrap; }
+button { font: inherit; font-weight: 700; border: 0; border-radius: 12px; padding: .75em 1em; flex: 1; background: var(--accent); color: #fff; cursor: pointer; }
+button.ghost { background: var(--chip); color: var(--ink); }
+button:disabled { opacity: .5; }
+label { display: flex; align-items: center; gap: .5em; margin-top: .8em; color: var(--dim); }
+label input { width: 1.2em; height: 1.2em; accent-color: var(--accent); }
+#out { margin-top: 1.2em; padding: .9em 1em; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); }
+#out:empty { display: none; }
+#out.bad { color: var(--bad); }
+#out b { display: block; font-size: 1.1rem; }
+#out small { color: var(--dim); }
+h2 { font-size: 1rem; margin: 1.6em 0 .5em; color: var(--dim); }
+ul { list-style: none; padding: 0; display: grid; gap: .4em; }
+li { background: var(--panel); border-radius: 12px; padding: .6em .8em; border: 1px solid var(--line); display: flex; justify-content: space-between; gap: .6em; }
+li small { color: var(--dim); white-space: nowrap; }
+</style>
+</head>
+<body>
+<h1>Send a recipe to the kitchen</h1>
+<p class="sub">Paste a recipe link, or say what you fancy. It shows up on the kitchen tablet.</p>
+<textarea id="q" placeholder="https://… or “lemon chicken traybake for 4, no oven”"></textarea>
+<div class="row" id="btns"></div>
+<label><input type="checkbox" id="save" checked> Save it</label>
+<label><input type="checkbox" id="show" checked> Open it on the tablet now</label>
+<div id="out"></div>
+<h2>Saved</h2>
+<ul id="list"></ul>
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let claude = false, busy = false;
+const isUrl = s => /^https?:\/\/\S+$/i.test(s.trim());
+function buttons() {
+  const q = $('#q').value.trim();
+  $('#btns').innerHTML = isUrl(q) || !claude ? '<button data-go="link">Import link</button>'
+    : '<button data-go="search">Find a recipe</button><button class="ghost" data-go="create">Write one</button>';
+}
+async function list() {
+  try {
+    const d = await (await fetch('/api/recipes')).json(); claude = d.claude; buttons();
+    const saved = d.recipes.filter(r => r.saved);
+    $('#list').innerHTML = saved.map(r => `<li><span>${esc(r.title)}</span><small>${esc(r.source_name || '')}</small></li>`).join('') || '<li><small>Nothing saved yet</small></li>';
+  } catch {}
+}
+$('#q').addEventListener('input', buttons);
+$('#btns').addEventListener('click', async e => {
+  const b = e.target.closest('button'); if (!b || busy) return;
+  const q = $('#q').value.trim(); if (!q) return;
+  const go = b.dataset.go, opts = { save: $('#save').checked, show: $('#show').checked };
+  const [path, body, label] = go === 'link' ? ['/api/recipes/import', { url: q, ...opts }, 'Reading the page…']
+    : ['/api/recipes/ask', { q, web: go === 'search', ...opts }, go === 'search' ? 'Searching recipe sites… (up to a minute)' : 'Writing a recipe…'];
+  busy = true; document.querySelectorAll('#btns button').forEach(x => x.disabled = true);
+  const out = $('#out'); out.className = ''; out.textContent = label;
+  try {
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `Error ${r.status}`);
+    out.innerHTML = `<b>${esc(d.title)}</b><small>${d.ingredients.length} ingredients · ${d.steps.length} steps${opts.show ? ' · open on the tablet' : ''}${opts.save ? '' : ' · in Recent, not saved'}</small>`;
+    $('#q').value = ''; buttons(); list();
+  } catch (err) { out.className = 'bad'; out.textContent = err.message; }
+  finally { busy = false; document.querySelectorAll('#btns button').forEach(x => x.disabled = false); }
+});
+// share-sheet / shortcut friendly: /add?url=… or /add?q=…
+const p = new URLSearchParams(location.search);
+const pre = p.get('url') || p.get('text') || p.get('q');
+if (pre) $('#q').value = (pre.match(/https?:\/\/\S+/) || [pre])[0];
+buttons(); list();
+</script>
+</body>
+</html>

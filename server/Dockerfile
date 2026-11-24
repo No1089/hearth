@@ -4,7 +4,7 @@ FROM python:3.13-slim
 ARG BUILD_VERSION
 LABEL io.hass.version="${BUILD_VERSION}" io.hass.type="app" io.hass.arch="aarch64|amd64"
 WORKDIR /app
-RUN pip install --no-cache-dir flask websockets
+RUN pip install --no-cache-dir flask websockets anthropic
 COPY app.py ./
 COPY static ./static
 ENV PORT=5007
