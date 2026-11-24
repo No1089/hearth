@@ -1389,6 +1389,7 @@ def _clean_recipe(r):
         'note': _txt(r.get('note'), 600),
         'dish': _txt(r.get('dish'), 60),
         'kind': 'drink' if r.get('kind') == 'drink' else 'meal',
+        'alcoholic': r.get('alcoholic') if isinstance(r.get('alcoholic'), bool) else _has_alcohol(r.get('ingredients') or []),
         'image_credit': _txt(r.get('image_credit'), 40) if r.get('image') else '',
     }
 
@@ -1640,10 +1641,11 @@ RECIPE_TOOL = {
     'input_schema': {
         'type': 'object', 'additionalProperties': False,
         'required': ['title', 'description', 'servings', 'serves', 'prep_min', 'cook_min', 'total_min',
-                     'ingredients', 'steps', 'tips', 'source_url', 'source_name', 'note', 'dish', 'kind'],
+                     'ingredients', 'steps', 'tips', 'source_url', 'source_name', 'note', 'dish', 'kind', 'alcoholic'],
         'properties': {
             'title': {'type': 'string'},
             'kind': {'type': 'string', 'enum': ['meal', 'drink'], 'description': 'drink for cocktails, mocktails and other drinks'},
+            'alcoholic': {'type': 'boolean', 'description': 'true if it contains any alcohol (food or drink)'},
             'dish': {'type': 'string', 'description': 'The dish as an encyclopedia article would name it, broad enough '
                      'to have one: "Hot pot", "Dal", "Lasagne", "Chili con carne", "Curry". Used to find a photo.'},
             'description': {'type': 'string', 'description': 'One or two sentences: what it is and why it is good.'},
@@ -1730,9 +1732,21 @@ def _recipe_job(fn):
         app.logger.warning('recipe fetch: %s', e)
         return jsonify({'error': f"Couldn't open that page ({getattr(e, 'code', None) or getattr(e, 'reason', e)})"}), 502
 
+_BOOZE = re.compile(r'\b(rum|gin|vodka|tequila|mezcal|whisk(e)?y|bourbon|brandy|cognac|vermouth|campari|aperol|'
+                    r'liqueur|triple sec|cointreau|amaretto|kahl[uú]a|wine|prosecco|champagne|cava|port|sherry|'
+                    r'beer|cider|absinthe|schnapps|sake|pisco|cacha[cç]a|limoncello|baileys|grand marnier)\b', re.I)
+_NOT_BOOZE = re.compile(r'non[- ]?alcoholic|alcohol[- ]free|0[.,]0\s?%|zero[- ]proof|ginger (ale|beer)|root beer|wine vinegar', re.I)
+
+def _has_alcohol(ings):
+    """For recipes saved before Claude said: any spirit, wine or liqueur in the ingredients."""
+    return any(_BOOZE.search(t) and not _NOT_BOOZE.search(t)
+               for t in ((i.get('text') if isinstance(i, dict) else str(i)) or '' for i in ings))
+
 def _summary(r):
     return {k: r.get(k) for k in ('id', 'title', 'description', 'image', 'total_min', 'prep_min', 'cook_min',
-                                   'servings', 'origin', 'source_name', 'added', 'saved', 'kind')}
+                                   'servings', 'origin', 'source_name', 'added', 'saved', 'kind')} | {
+        'mocktail': r.get('kind') == 'drink' and not (r['alcoholic'] if isinstance(r.get('alcoholic'), bool)
+                                                       else _has_alcohol(r.get('ingredients') or []))}
 
 def _maybe_show(r):
     """Phone page options: {save} keeps it straight away, {show} opens it on the tablet."""

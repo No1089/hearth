@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.11.2
+
+- Mocktails get their own pink tile and a "Mocktail" tag. Claude marks each
+  new drink as alcoholic or not; drinks saved earlier are judged by their
+  ingredients (spirits, wine, liqueurs; alcohol-free versions don't count).
+
 ## 1.11.1
 
 - Recipe photos: a last fallback to Wikimedia Commons, taking a photo whose

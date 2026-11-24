@@ -389,6 +389,11 @@ nav .eq i:nth-child(2) { animation-delay: -.4s; } nav .eq i:nth-child(3) { anima
 .rgrid h2 { grid-column: 1 / -1; padding: .8em 0 0; }
 .rgrid h2 small { color: var(--dim); font-weight: 500; font-size: .7em; margin-left: .4em; }
 .rcard.recent { opacity: .85; }
+.rcard.mocktail { background: color-mix(in srgb, var(--c6) 20%, var(--panel)); }
+.rcard.mocktail .ph:not([style]) { background-color: color-mix(in srgb, var(--c6) 30%, var(--panel)); color: var(--c6); }
+.rcard .ph { position: relative; }
+.rcard .tag { position: absolute; left: .5em; top: .5em; background: var(--c6); color: #fff; font-size: .72rem; font-weight: 800;
+  border-radius: 999px; padding: .15em .6em; letter-spacing: .02em; }
 .rkind { grid-column: 1 / -1; display: flex; gap: .4em; padding-top: .9em; }
 .rkind button { padding: .45em 1.1em; border-radius: 999px; background: var(--chip); font-weight: 700; color: var(--dim); }
 .rkind button.on { background: var(--accent); color: var(--accent-ink); }
@@ -1384,8 +1389,8 @@ async function loadRecipes() {
   if (recipes.some(r => !r.image) && photoRetry++ < 2) setTimeout(loadRecipes, 10e3);
 }
 function recipeCard(r) {
-  return `<button class="rcard${r.saved ? '' : ' recent'}" data-id="${esc(r.id)}">
-      <div class="ph"${r.image ? ` style="background-image:url('${esc(r.image)}')"` : ''}>${r.image ? '' : icon(r.kind === 'drink' ? 'i-glass' : 'i-pot')}</div>
+  return `<button class="rcard${r.saved ? '' : ' recent'}${r.mocktail ? ' mocktail' : ''}" data-id="${esc(r.id)}">
+      <div class="ph"${r.image ? ` style="background-image:url('${esc(r.image)}')"` : ''}>${r.image ? '' : icon(r.kind === 'drink' ? 'i-glass' : 'i-pot')}${r.mocktail ? '<span class="tag">Mocktail</span>' : ''}</div>
       <div class="tx"><div class="nm">${esc(r.title)}</div><div class="mt">${esc([mins(r.total_min || ((r.prep_min || 0) + (r.cook_min || 0)) || null), r.source_name || (r.origin === 'create' ? 'Claude' : '')].filter(Boolean).join(' · '))}</div></div></button>`;
 }
 let rKind = 'meal';
