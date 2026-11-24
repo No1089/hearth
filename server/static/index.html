@@ -1363,7 +1363,7 @@ async function loadRecipes() {
   try { const d = await api('/api/recipes'); recipes = d.recipes; config.hasClaude = d.claude; } catch { if (!recipes) recipes = []; }
   renderRecipeLib();
   // the server looks up photos for web recipes in the background: look again shortly
-  if (recipes.some(r => !r.image && ['link', 'search', 'change'].includes(r.origin)) && photoRetry++ < 2) setTimeout(loadRecipes, 10e3);
+  if (recipes.some(r => !r.image) && photoRetry++ < 2) setTimeout(loadRecipes, 10e3);
 }
 function recipeCard(r) {
   return `<button class="rcard${r.saved ? '' : ' recent'}" data-id="${esc(r.id)}">
@@ -1503,7 +1503,7 @@ function renderRecipe() {
         ${r.note ? `<div class="rnote">${esc(r.note)}</div>` : ''}${r.description && !r.note ? `<div class="rnote">${esc(r.description)}</div>` : ''}
         ${steps}
         ${r.tips?.length ? `<h3>Tips</h3><div class="rtips">${r.tips.map(t => `<div>• ${esc(t)}</div>`).join('')}</div>` : ''}
-        ${r.source_url ? `<div class="rsrc">From ${esc(r.source_url)}</div>` : ''}
+        ${r.source_url ? `<div class="rsrc">From ${esc(r.source_url)}</div>` : ''}${r.image_credit ? `<div class="rsrc">Photo: ${esc(r.image_credit)} (the dish in general, not this recipe)</div>` : ''}
       </div>
     </div>`;
 }

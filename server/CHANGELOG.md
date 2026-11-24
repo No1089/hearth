@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.10.2
+
+- Recipe photos: when the source page has none or refuses the request, and
+  for recipes Claude writes, the Wikipedia article for the dish gives one
+  (Claude names the dish, e.g. "Hot pot"). It's only used when the article
+  title matches the dish closely, and is credited "Photo: Wikipedia" on the recipe.
+
 ## 1.10.1
 
 - Recipes: Print asks first ("Ingredients" or "Whole recipe", with the length

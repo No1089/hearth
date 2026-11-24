@@ -1381,6 +1381,8 @@ def _clean_recipe(r):
         'source_url': r.get('source_url') if str(r.get('source_url') or '').startswith(('http://', 'https://')) else '',
         'source_name': _txt(r.get('source_name'), 80),
         'note': _txt(r.get('note'), 600),
+        'dish': _txt(r.get('dish'), 60),
+        'image_credit': _txt(r.get('image_credit'), 40) if r.get('image') else '',
     }
 
 # fetching a pasted link: public http(s) hosts only, so the box can't be used to poke at the LAN
@@ -1529,17 +1531,48 @@ def _image_for(url):
         app.logger.info('recipe image %s: %s', url, e)
         return ''
 
+def _wiki_image(r):
+    """Fallback photo: the Wikipedia article for the dish, only when its title matches closely
+    ("Hot pot" → Hot pot; "Tray bake" → Cookie is refused). Returns '' when nothing fits."""
+    from difflib import SequenceMatcher
+    words = re.sub(r'[^\w\s-]', ' ', r.get('title') or '').split()
+    tries = [r['dish']] if r.get('dish') else [' '.join(words[-2:]), words[-1] if words else '']
+    for q in [t for t in tries if t]:
+        qs = urllib.parse.urlencode({'action': 'query', 'generator': 'search', 'gsrsearch': q, 'gsrlimit': 3,
+                                     'prop': 'pageimages', 'piprop': 'thumbnail', 'pithumbsize': 800, 'format': 'json'})
+        try:
+            pages = http_json(f'https://en.wikipedia.org/w/api.php?{qs}',
+                              headers={'User-Agent': 'Hearth-kitchen-tablet/1.10'}, timeout=8).get('query', {}).get('pages', {})
+        except (OSError, ValueError) as e:              # e.g. 429: try again on a later visit
+            app.logger.info('wikipedia image %s: %s', q, e)
+            return None
+        for pg in sorted(pages.values(), key=lambda x: x.get('index', 9)):
+            src = (pg.get('thumbnail') or {}).get('source', '')
+            if src.startswith('https://') and SequenceMatcher(None, q.lower(), pg['title'].lower()).ratio() >= .8:
+                return src
+    return ''
+
+def _photo(r, url=None):
+    """(image, credit) for a new or older recipe: its source page first, then Wikipedia."""
+    img = _image_for(url) if url else ''
+    if img:
+        return img, ''
+    img = _wiki_image(r)
+    return (img, 'Wikipedia') if img else ('', '' if img == '' else None)   # credit None = lookup failed
+
 def _backfill_images(ids):
     """Recipes from the web saved without a photo: look once, in the background."""
     for rid in ids:
         r = next((x for x in _load_recipes() if x['id'] == rid), None)
-        img = _image_for(r['source_url']) if r else ''
+        img, credit = _photo(r, r.get('source_url')) if r else ('', '')
         with _recipes_lock:
             rs = _load_recipes()
             for x in rs:
                 if x['id'] == rid:
-                    x['image_tried'] = True
-                    x['image'] = x.get('image') or img
+                    x['image_looked'] = credit is not None
+                    credit = credit or ''
+                    if img and not x.get('image'):
+                        x['image'], x['image_credit'] = img, credit
             _save_recipes(rs)
 
 _backfilling = set()
@@ -1562,9 +1595,11 @@ RECIPE_TOOL = {
     'input_schema': {
         'type': 'object', 'additionalProperties': False,
         'required': ['title', 'description', 'servings', 'serves', 'prep_min', 'cook_min', 'total_min',
-                     'ingredients', 'steps', 'tips', 'source_url', 'source_name', 'note'],
+                     'ingredients', 'steps', 'tips', 'source_url', 'source_name', 'note', 'dish'],
         'properties': {
             'title': {'type': 'string'},
+            'dish': {'type': 'string', 'description': 'The dish as an encyclopedia article would name it, broad enough '
+                     'to have one: "Hot pot", "Dal", "Lasagne", "Chili con carne", "Curry". Used to find a photo.'},
             'description': {'type': 'string', 'description': 'One or two sentences: what it is and why it is good.'},
             'servings': {'type': 'string', 'description': 'e.g. "Serves 4" or "12 cookies"'},
             'serves': {**_nullable_int, 'description': 'Number of people, for scaling; null if not about people'},
@@ -1672,10 +1707,10 @@ def add_page():
 @app.route('/api/recipes')
 def api_recipes():
     rs = _load_recipes()
-    todo = [r['id'] for r in rs if r.get('source_url') and not r.get('image') and not r.get('image_tried')
+    todo = [r['id'] for r in rs if not r.get('image') and not r.get('image_looked')
             and r['id'] not in _backfilling][:5]
     if todo:
-        _backfilling.update(todo)
+        _backfilling.update(todo)                         # once per server run; a failed lookup waits for a restart
         threading.Thread(target=_backfill_images, args=(todo,), daemon=True).start()
     return jsonify({'recipes': [_summary(r) for r in rs], 'claude': bool(ANTHROPIC_API_KEY)})
 
@@ -1737,12 +1772,16 @@ def api_recipe_ask():
                   f'Request: {q}')
         def run():
             r = _claude_recipe(prompt, web=True, effort='medium')
-            if str(r.get('source_url') or '').startswith(('http://', 'https://')):
-                r = {**r, 'image': _image_for(r['source_url'])}
-            return _maybe_show(_store_recipe(r, 'search'))
+            src = r.get('source_url') if str(r.get('source_url') or '').startswith(('http://', 'https://')) else None
+            img, credit = _photo(r, src)
+            return _maybe_show(_store_recipe({**r, 'image': img, 'image_credit': credit}, 'search'))
         return _recipe_job(run)
     prompt = f'Write a reliable home recipe for this request. Leave source_url empty.\n\nRequest: {q}'
-    return _recipe_job(lambda: _maybe_show(_store_recipe(_claude_recipe(prompt), 'create')))
+    def run():
+        r = _claude_recipe(prompt)
+        img, credit = _photo(r)
+        return _maybe_show(_store_recipe({**r, 'image': img, 'image_credit': credit}, 'create'))
+    return _recipe_job(run)
 
 @app.route('/api/recipes/<rid>/change', methods=['POST'])
 def api_recipe_change(rid):
@@ -1757,7 +1796,8 @@ def api_recipe_change(rid):
               f'touch, keep source_url/source_name, and say in note what you changed. If the change needs a new '
               f'title, give it one.\n\nChange: {ask}\n\n<recipe>\n{json.dumps(keep, ensure_ascii=False)}\n</recipe>')
     def run():
-        return _store_recipe({**_claude_recipe(prompt), 'image': r.get('image', '')}, 'change', parent=rid)
+        return _store_recipe({**_claude_recipe(prompt), 'image': r.get('image', ''), 'image_credit': r.get('image_credit', '')},
+                             'change', parent=rid)
     return _recipe_job(run)
 
 if __name__ == '__main__':
