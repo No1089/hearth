@@ -1385,7 +1385,7 @@ async function loadRecipes() {
 }
 function recipeCard(r) {
   return `<button class="rcard${r.saved ? '' : ' recent'}" data-id="${esc(r.id)}">
-      <div class="ph"${r.image ? ` style="background-image:url('${esc(r.image)}')"` : ''}>${r.image ? '' : icon('i-pot')}</div>
+      <div class="ph"${r.image ? ` style="background-image:url('${esc(r.image)}')"` : ''}>${r.image ? '' : icon(r.kind === 'drink' ? 'i-glass' : 'i-pot')}</div>
       <div class="tx"><div class="nm">${esc(r.title)}</div><div class="mt">${esc([mins(r.total_min || ((r.prep_min || 0) + (r.cook_min || 0)) || null), r.source_name || (r.origin === 'create' ? 'Claude' : '')].filter(Boolean).join(' · '))}</div></div></button>`;
 }
 let rKind = 'meal';
